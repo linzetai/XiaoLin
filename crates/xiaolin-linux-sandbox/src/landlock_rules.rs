@@ -13,8 +13,7 @@ pub fn apply_landlock_rules(policy: &SandboxPolicy) -> Result<()> {
 #[cfg(target_os = "linux")]
 fn apply_landlock_rules_inner(policy: &SandboxPolicy) -> Result<()> {
     use landlock::{
-        AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr,
-        RulesetCreatedAttr, RulesetStatus,
+        AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus,
     };
 
     let read_access = AccessFs::ReadFile | AccessFs::ReadDir | AccessFs::Execute;
@@ -83,9 +82,7 @@ fn apply_landlock_rules_inner(policy: &SandboxPolicy) -> Result<()> {
         }
     }
 
-    let status = ruleset
-        .restrict_self()
-        .context("landlock restrict_self")?;
+    let status = ruleset.restrict_self().context("landlock restrict_self")?;
 
     match status.ruleset {
         RulesetStatus::FullyEnforced => {
@@ -106,8 +103,7 @@ fn apply_landlock_rules_inner(policy: &SandboxPolicy) -> Result<()> {
 fn policy_allows_tmp_write(policy: &SandboxPolicy) -> bool {
     if policy.writable_roots.iter().any(|root| {
         root == Path::new("/tmp")
-            || std::env::var_os("TMPDIR")
-                .is_some_and(|tmpdir| root.as_os_str() == tmpdir)
+            || std::env::var_os("TMPDIR").is_some_and(|tmpdir| root.as_os_str() == tmpdir)
     }) {
         return true;
     }

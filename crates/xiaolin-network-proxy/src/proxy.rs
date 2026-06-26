@@ -111,10 +111,7 @@ impl NetworkProxy {
         env.insert("no_proxy".into(), no_proxy.into());
 
         // Proxy active marker
-        env.insert(
-            super::proxy_env::PROXY_ACTIVE_ENV_KEY.into(),
-            "1".into(),
-        );
+        env.insert(super::proxy_env::PROXY_ACTIVE_ENV_KEY.into(), "1".into());
 
         // SOCKS5-specific overrides
         if let Some(socks_url) = self.socks_proxy_url() {
@@ -127,10 +124,7 @@ impl NetworkProxy {
             // macOS: route git SSH through SOCKS5 proxy
             #[cfg(target_os = "macos")]
             if let Some(socks_addr) = self.socks_addr {
-                let ssh_cmd = format!(
-                    "ssh -o ProxyCommand='nc -X 5 -x {} %h %p'",
-                    socks_addr
-                );
+                let ssh_cmd = format!("ssh -o ProxyCommand='nc -X 5 -x {} %h %p'", socks_addr);
                 env.insert("GIT_SSH_COMMAND".into(), ssh_cmd);
             }
         }
@@ -183,7 +177,8 @@ impl NetworkProxyBuilder {
         let state = self.state.ok_or(ProxyBuildError::MissingState)?;
 
         let http_listener = tokio::net::TcpListener::bind(
-            self.http_addr.unwrap_or_else(|| "127.0.0.1:0".parse().unwrap()),
+            self.http_addr
+                .unwrap_or_else(|| "127.0.0.1:0".parse().unwrap()),
         )
         .await
         .map_err(|e| ProxyBuildError::BindFailed(format!("http: {e}")))?;

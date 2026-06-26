@@ -96,7 +96,8 @@ pub trait ConfigReloader: Send + Sync + 'static {
 
     fn maybe_reload(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<NetworkProxySettings>, String>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Option<NetworkProxySettings>, String>> + Send + '_>>
+    {
         Box::pin(async { Ok(None) })
     }
 
@@ -327,10 +328,7 @@ impl NetworkProxyState {
         if let Some(mode) = *self.network_mode.read().await {
             return mode;
         }
-        self.hot
-            .read()
-            .await
-            .mode
+        self.hot.read().await.mode
     }
 
     // ── Dynamic domain allow/deny ───────────────────────────────────────
@@ -457,17 +455,13 @@ impl NetworkProxyState {
         let snapshot = self.hot.read().await;
 
         if is_loopback_host(host) && !snapshot.allow_local_binding {
-            return Ok(HostBlockDecision::Blocked(
-                HostBlockReason::LoopbackBlocked,
-            ));
+            return Ok(HostBlockDecision::Blocked(HostBlockReason::LoopbackBlocked));
         }
 
         if !is_ip_address(host) {
             match resolve_host(host).await {
                 Ok(addrs) => {
-                    if !snapshot.allow_local_binding
-                        && addrs.iter().any(|a| a.is_loopback())
-                    {
+                    if !snapshot.allow_local_binding && addrs.iter().any(|a| a.is_loopback()) {
                         return Ok(HostBlockDecision::Blocked(
                             HostBlockReason::ResolvedToLoopback,
                         ));
@@ -519,10 +513,7 @@ impl NetworkProxyState {
 
     // ── Blocked request recording ───────────────────────────────────────
 
-    pub async fn set_blocked_request_observer(
-        &self,
-        observer: Arc<dyn BlockedRequestObserver>,
-    ) {
+    pub async fn set_blocked_request_observer(&self, observer: Arc<dyn BlockedRequestObserver>) {
         *self.blocked_request_observer.write().await = Some(observer);
     }
 
@@ -628,9 +619,7 @@ fn host_matches(pattern: &str, host: &str) -> bool {
 }
 
 fn is_loopback_host(host: &str) -> bool {
-    host == "127.0.0.1"
-        || host == "::1"
-        || host.eq_ignore_ascii_case("localhost")
+    host == "127.0.0.1" || host == "::1" || host.eq_ignore_ascii_case("localhost")
 }
 
 fn is_ip_address(host: &str) -> bool {
@@ -732,16 +721,27 @@ mod tests {
 
     #[tokio::test]
     async fn is_unix_socket_allowed_checks_prefix() {
-        use crate::config::{UnixSocketPermissionEntry, NetworkUnixSocketPermission};
+        use crate::config::{NetworkUnixSocketPermission, UnixSocketPermissionEntry};
         use std::path::PathBuf;
         let mut settings = NetworkProxySettings::default();
-        settings.unix_sockets.entries.push(UnixSocketPermissionEntry {
-            path: PathBuf::from("/tmp/safe/"),
-            permission: NetworkUnixSocketPermission::Allow,
-        });
+        settings
+            .unix_sockets
+            .entries
+            .push(UnixSocketPermissionEntry {
+                path: PathBuf::from("/tmp/safe/"),
+                permission: NetworkUnixSocketPermission::Allow,
+            });
         let state = NetworkProxyState::for_settings(settings);
-        assert!(state.is_unix_socket_allowed(Path::new("/tmp/safe/test.sock")).await);
-        assert!(!state.is_unix_socket_allowed(Path::new("/tmp/evil/test.sock")).await);
+        assert!(
+            state
+                .is_unix_socket_allowed(Path::new("/tmp/safe/test.sock"))
+                .await
+        );
+        assert!(
+            !state
+                .is_unix_socket_allowed(Path::new("/tmp/evil/test.sock"))
+                .await
+        );
     }
 
     #[tokio::test]

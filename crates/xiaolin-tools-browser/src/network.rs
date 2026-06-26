@@ -54,9 +54,7 @@ pub fn network_bridge_configured() -> bool {
 }
 
 fn bridge() -> Result<&'static Arc<dyn BrowserNetworkBridge>, String> {
-    NETWORK_BRIDGE
-        .get()
-        .ok_or_else(network_unavailable_message)
+    NETWORK_BRIDGE.get().ok_or_else(network_unavailable_message)
 }
 
 pub fn validate_network_action(action: &str, args: &serde_json::Value) -> Result<(), String> {

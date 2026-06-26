@@ -119,7 +119,9 @@ pub fn normalize_network_rule_host(raw: &str) -> Result<String, String> {
     }
 
     if trimmed.contains("://") {
-        return Err(format!("host must not contain a scheme ('://'): '{trimmed}'"));
+        return Err(format!(
+            "host must not contain a scheme ('://'): '{trimmed}'"
+        ));
     }
     if trimmed.contains('/') {
         return Err(format!("host must not contain a path ('/'): '{trimmed}'"));
@@ -362,10 +364,7 @@ decision = "forbidden"
 
     #[test]
     fn normalize_host_ipv6_bracket() {
-        assert_eq!(
-            normalize_network_rule_host("[::1]:8080").unwrap(),
-            "::1"
-        );
+        assert_eq!(normalize_network_rule_host("[::1]:8080").unwrap(), "::1");
         assert_eq!(
             normalize_network_rule_host("[2001:db8::1]").unwrap(),
             "2001:db8::1"

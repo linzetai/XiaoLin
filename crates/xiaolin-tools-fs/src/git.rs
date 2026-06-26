@@ -177,8 +177,8 @@ pub async fn branch_list(dir: &Path) -> Result<Vec<Branch>, String> {
                 Some(s.to_string())
             }
         });
-        let is_remote = parts.get(2).map(|s| *s == "remote").unwrap_or(false)
-            || name.starts_with("remotes/");
+        let is_remote =
+            parts.get(2).map(|s| *s == "remote").unwrap_or(false) || name.starts_with("remotes/");
         branches.push(Branch {
             name,
             is_current,
@@ -264,10 +264,7 @@ fn parse_porcelain_v2_entry(
     let (path, old_path) = if is_rename {
         let tab_parts: Vec<&str> = line.rsplitn(3, '\t').collect();
         if tab_parts.len() >= 2 {
-            (
-                tab_parts[0].to_string(),
-                Some(tab_parts[1].to_string()),
-            )
+            (tab_parts[0].to_string(), Some(tab_parts[1].to_string()))
         } else {
             (parts.last().unwrap_or(&"").to_string(), None)
         }
@@ -336,11 +333,7 @@ pub async fn diff_stat(dir: &Path) -> Result<DiffStat, String> {
     })
 }
 
-pub async fn file_diff(
-    dir: &Path,
-    path: &str,
-    staged: bool,
-) -> Result<Vec<DiffHunk>, String> {
+pub async fn file_diff(dir: &Path, path: &str, staged: bool) -> Result<Vec<DiffHunk>, String> {
     let args = if staged {
         vec!["diff", "--cached", "--", path]
     } else {
@@ -400,10 +393,7 @@ fn parse_hunk_header(line: &str) -> (u32, u32, u32, u32) {
 fn parse_range(s: &str) -> (u32, u32) {
     let s = s.trim_start_matches(['-', '+']);
     if let Some((start, lines)) = s.split_once(',') {
-        (
-            start.parse().unwrap_or(0),
-            lines.parse().unwrap_or(0),
-        )
+        (start.parse().unwrap_or(0), lines.parse().unwrap_or(0))
     } else {
         (s.parse().unwrap_or(0), 1)
     }
@@ -414,7 +404,12 @@ pub async fn git_log(dir: &Path, limit: u32) -> Result<Vec<CommitSummary>, Strin
     let format = "%H%n%h%n%an%n%aI%n%s";
     let output = run_git(
         dir,
-        &["log", &limit_str, &format!("--format={format}"), "--shortstat"],
+        &[
+            "log",
+            &limit_str,
+            &format!("--format={format}"),
+            "--shortstat",
+        ],
     )
     .await?;
 
@@ -437,16 +432,31 @@ pub async fn git_log(dir: &Path, limit: u32) -> Result<Vec<CommitSummary>, Strin
         let mut deletions = 0u32;
 
         if let Some(stat_line) = lines_iter.peek() {
-            if stat_line.contains("changed") || stat_line.contains("insertion") || stat_line.contains("deletion") {
+            if stat_line.contains("changed")
+                || stat_line.contains("insertion")
+                || stat_line.contains("deletion")
+            {
                 let stat = lines_iter.next().unwrap_or_default();
                 for part in stat.split(',') {
                     let part = part.trim();
                     if part.contains("file") {
-                        files_changed = part.split_whitespace().next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                        files_changed = part
+                            .split_whitespace()
+                            .next()
+                            .and_then(|n| n.parse().ok())
+                            .unwrap_or(0);
                     } else if part.contains("insertion") {
-                        insertions = part.split_whitespace().next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                        insertions = part
+                            .split_whitespace()
+                            .next()
+                            .and_then(|n| n.parse().ok())
+                            .unwrap_or(0);
                     } else if part.contains("deletion") {
-                        deletions = part.split_whitespace().next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                        deletions = part
+                            .split_whitespace()
+                            .next()
+                            .and_then(|n| n.parse().ok())
+                            .unwrap_or(0);
                     }
                 }
             }
@@ -486,7 +496,9 @@ pub async fn git_stage(dir: &Path, files: &[String]) -> Result<(), String> {
 
 pub async fn git_unstage(dir: &Path, files: &[String]) -> Result<(), String> {
     if files.is_empty() {
-        return run_git(dir, &["restore", "--staged", "."]).await.map(|_| ());
+        return run_git(dir, &["restore", "--staged", "."])
+            .await
+            .map(|_| ());
     }
     let mut args = vec!["restore", "--staged", "--"];
     let refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();

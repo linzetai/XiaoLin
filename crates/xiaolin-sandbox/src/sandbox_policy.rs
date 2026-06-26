@@ -68,9 +68,8 @@ impl WritableRoot {
     }
 
     fn path_contains_component(path: &Path, component_name: &str) -> bool {
-        path.components().any(|c| {
-            matches!(c, std::path::Component::Normal(s) if s == component_name)
-        })
+        path.components()
+            .any(|c| matches!(c, std::path::Component::Normal(s) if s == component_name))
     }
 }
 
@@ -151,9 +150,7 @@ pub fn compatibility_sandbox_policy_from_fs_sandbox(
                     .iter()
                     .filter(|e| e.access.can_write())
                     .filter_map(|e| match &e.path {
-                        xiaolin_security::FileSystemPath::Path { path } => {
-                            Some(path.to_path_buf())
-                        }
+                        xiaolin_security::FileSystemPath::Path { path } => Some(path.to_path_buf()),
                         _ => None,
                     })
                     .collect();
@@ -246,16 +243,14 @@ mod tests {
     #[test]
     fn compatibility_from_fs_sandbox_unrestricted() {
         let fs = FileSystemSandboxPolicy::unrestricted();
-        let policy =
-            compatibility_sandbox_policy_from_fs_sandbox(&fs, NetworkAccess::Enabled);
+        let policy = compatibility_sandbox_policy_from_fs_sandbox(&fs, NetworkAccess::Enabled);
         assert!(matches!(policy, SandboxPolicy::DangerFullAccess));
     }
 
     #[test]
     fn compatibility_from_fs_sandbox_restricted_empty() {
         let fs = FileSystemSandboxPolicy::restricted(vec![]);
-        let policy =
-            compatibility_sandbox_policy_from_fs_sandbox(&fs, NetworkAccess::Restricted);
+        let policy = compatibility_sandbox_policy_from_fs_sandbox(&fs, NetworkAccess::Restricted);
         assert!(matches!(
             policy,
             SandboxPolicy::ReadOnly {
@@ -273,8 +268,7 @@ mod tests {
             },
             access: FileSystemAccessMode::Write,
         }]);
-        let policy =
-            compatibility_sandbox_policy_from_fs_sandbox(&fs, NetworkAccess::Enabled);
+        let policy = compatibility_sandbox_policy_from_fs_sandbox(&fs, NetworkAccess::Enabled);
         match policy {
             SandboxPolicy::WorkspaceWrite {
                 network,
@@ -290,8 +284,7 @@ mod tests {
     #[test]
     fn compatibility_from_fs_sandbox_external() {
         let fs = FileSystemSandboxPolicy::external_sandbox();
-        let policy =
-            compatibility_sandbox_policy_from_fs_sandbox(&fs, NetworkAccess::Enabled);
+        let policy = compatibility_sandbox_policy_from_fs_sandbox(&fs, NetworkAccess::Enabled);
         assert!(matches!(
             policy,
             SandboxPolicy::ExternalSandbox {

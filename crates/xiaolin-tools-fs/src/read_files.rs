@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet};
 use async_trait::async_trait;
 use serde::Deserialize;
 use xiaolin_core::tool::{
-    Tool, ToolErrorType, ToolExposure, ToolKind, ToolParameterSchema, ToolResult,
-    no_retry_recovery_hint,
+    no_retry_recovery_hint, Tool, ToolErrorType, ToolExposure, ToolKind, ToolParameterSchema,
+    ToolResult,
 };
 
 use crate::filesystem::ReadFileTool;
@@ -259,7 +259,10 @@ mod tests {
     async fn partial_failure_one_exists_one_missing() {
         let cwd = std::env::current_dir().expect("cwd");
         let existing = cwd.join("Cargo.toml");
-        assert!(existing.exists(), "Cargo.toml should exist in workspace root");
+        assert!(
+            existing.exists(),
+            "Cargo.toml should exist in workspace root"
+        );
         let missing = cwd.join("_read_files_missing_xyz.txt");
         assert!(!missing.exists());
 
@@ -273,7 +276,11 @@ mod tests {
         .to_string();
 
         let out = with_file_access_mode(FileAccessMode::Workspace, tool.execute(&args)).await;
-        assert!(out.success, "partial failure should be soft success: {}", out.output);
+        assert!(
+            out.success,
+            "partial failure should be soft success: {}",
+            out.output
+        );
 
         let parsed: serde_json::Value = serde_json::from_str(&out.output).expect("JSON output");
         assert_eq!(parsed["count"], 2);
@@ -283,14 +290,23 @@ mod tests {
         let files = parsed["files"].as_array().expect("files array");
         assert_eq!(files.len(), 2);
 
-        let ok_entry = files.iter().find(|f| f["success"] == true).expect("one success");
+        let ok_entry = files
+            .iter()
+            .find(|f| f["success"] == true)
+            .expect("one success");
         assert!(ok_entry["content"]
             .as_str()
             .unwrap_or("")
             .starts_with("=== "));
-        assert!(ok_entry["content"].as_str().unwrap_or("").contains("[package]"));
+        assert!(ok_entry["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("[package]"));
 
-        let fail_entry = files.iter().find(|f| f["success"] == false).expect("one failure");
+        let fail_entry = files
+            .iter()
+            .find(|f| f["success"] == false)
+            .expect("one failure");
         assert_eq!(fail_entry["error_type"], "file_not_found");
         let recovery_hint = fail_entry["recovery_hint"].as_str().unwrap_or("");
         assert!(recovery_hint.len() > 10);
@@ -366,7 +382,11 @@ mod tests {
         .to_string();
 
         let out = with_file_access_mode(FileAccessMode::Workspace, tool.execute(&args)).await;
-        assert!(out.success, "all failures should still be soft success: {}", out.output);
+        assert!(
+            out.success,
+            "all failures should still be soft success: {}",
+            out.output
+        );
 
         let parsed: serde_json::Value = serde_json::from_str(&out.output).expect("JSON output");
         assert_eq!(parsed["count"], 2);

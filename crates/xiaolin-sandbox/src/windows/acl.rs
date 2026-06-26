@@ -130,8 +130,13 @@ pub fn get_allowed_prefixes(
 
     // System paths always readable
     for sys_path in &[
-        "/usr", "/bin", "/lib", "/etc",
-        "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
+        "/usr",
+        "/bin",
+        "/lib",
+        "/etc",
+        "C:\\Windows",
+        "C:\\Program Files",
+        "C:\\Program Files (x86)",
     ] {
         prefixes.push(PathBuf::from(sys_path));
     }
@@ -168,21 +173,13 @@ mod tests {
 
     #[test]
     fn build_plan_no_deny_reads() {
-        let plan = build_acl_plan(
-            &[PathBuf::from("/tmp")],
-            &[],
-            "S-1-5-21-test",
-        );
+        let plan = build_acl_plan(&[PathBuf::from("/tmp")], &[], "S-1-5-21-test");
         assert!(plan.is_empty());
     }
 
     #[test]
     fn acl_entries_have_inherit() {
-        let plan = build_acl_plan(
-            &[],
-            &[PathBuf::from("/secret")],
-            "S-1-5-21-test",
-        );
+        let plan = build_acl_plan(&[], &[PathBuf::from("/secret")], "S-1-5-21-test");
         assert!(plan.apply[0].inherit);
     }
 
@@ -210,8 +207,9 @@ mod tests {
     fn allowed_prefixes_includes_system_paths() {
         let prefixes = get_allowed_prefixes(&[], &[]);
         assert!(!prefixes.is_empty());
-        assert!(prefixes.iter().any(|p| p.to_string_lossy().contains("Windows")
-            || p.to_string_lossy().contains("/usr")));
+        assert!(prefixes.iter().any(
+            |p| p.to_string_lossy().contains("Windows") || p.to_string_lossy().contains("/usr")
+        ));
     }
 
     #[test]
@@ -220,7 +218,10 @@ mod tests {
             &[PathBuf::from("/home/user")],
             &[PathBuf::from("/home/user")],
         );
-        let count = prefixes.iter().filter(|p| p == &&PathBuf::from("/home/user")).count();
+        let count = prefixes
+            .iter()
+            .filter(|p| p == &&PathBuf::from("/home/user"))
+            .count();
         assert_eq!(count, 1);
     }
 

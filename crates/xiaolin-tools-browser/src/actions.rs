@@ -44,9 +44,8 @@ pub fn validate_url_scheme(url: &str) -> Result<(), String> {
             "browser: URL scheme not allowed for '{trimmed}'. Only http:// and https:// are permitted."
         ));
     }
-    xiaolin_security::ssrf::ssrf_check_url(trimmed).map_err(|e| {
-        format!("browser: URL blocked for '{trimmed}': {e}")
-    })
+    xiaolin_security::ssrf::ssrf_check_url(trimmed)
+        .map_err(|e| format!("browser: URL blocked for '{trimmed}': {e}"))
 }
 
 pub fn workspace_root_for_paths() -> std::path::PathBuf {
@@ -56,8 +55,7 @@ pub fn workspace_root_for_paths() -> std::path::PathBuf {
 }
 
 pub fn canonicalize_or_self(path: &std::path::Path) -> std::path::PathBuf {
-    path.canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// Accept `pageId` as a non-empty string (WebView UUID) or non-negative integer (CDP tab index).
@@ -68,9 +66,9 @@ pub fn validate_page_id(args: &serde_json::Value) -> Result<(), String> {
         Some(v) if v.as_str().is_some_and(|s| !s.is_empty()) => Ok(()),
         Some(v) if v.as_u64().is_some() => Ok(()),
         Some(v) if v.as_i64().is_some_and(|n| n >= 0) => Ok(()),
-        _ => Err(
-            "browser: 'pageId' must be a non-empty string or non-negative integer.".to_string(),
-        ),
+        _ => {
+            Err("browser: 'pageId' must be a non-empty string or non-negative integer.".to_string())
+        }
     }
 }
 
@@ -80,10 +78,7 @@ fn path_under_allowed_roots(resolved: &Path) -> Result<(), String> {
         canonicalize_or_self(&workspace),
         canonicalize_or_self(&std::env::temp_dir()),
     ];
-    if allowed_roots
-        .iter()
-        .any(|root| resolved.starts_with(root))
-    {
+    if allowed_roots.iter().any(|root| resolved.starts_with(root)) {
         Ok(())
     } else {
         tracing::warn!(path = %resolved.display(), "path is outside allowed roots");

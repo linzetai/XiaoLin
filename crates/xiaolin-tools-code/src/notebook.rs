@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use xiaolin_tools_fs::filesystem::ensure_within_workspace;
-use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
+use xiaolin_tools_fs::filesystem::ensure_within_workspace;
 
 /// Jupyter Notebook cell-level editor.
 ///
@@ -100,8 +100,8 @@ fn read_notebook(path: &Path) -> Result<Notebook, String> {
             path.display()
         ));
     }
-    let metadata = std::fs::metadata(path)
-        .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+    let metadata =
+        std::fs::metadata(path).map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
     if metadata.len() > MAX_NOTEBOOK_BYTES {
         return Err(format!(
             "Notebook too large ({} bytes, max {}): {}",

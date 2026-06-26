@@ -1,5 +1,5 @@
-use xiaolin_core::config::DangerousOpsPolicy;
 use std::sync::RwLock;
+use xiaolin_core::config::DangerousOpsPolicy;
 
 /// Runtime state for the dangerous-ops policy.
 /// Updated via hot-reload when config changes.

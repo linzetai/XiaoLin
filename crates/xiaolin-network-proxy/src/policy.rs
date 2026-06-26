@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{bail, ensure, Context, Result};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -53,7 +53,7 @@ fn is_non_public_ipv4(ip: Ipv4Addr) -> bool {
         || ipv4_in_cidr(ip, [198, 18, 0, 0], 15)    // Benchmarking (RFC 2544)
         || ipv4_in_cidr(ip, [198, 51, 100, 0], 24)  // TEST-NET-2 (RFC 5737)
         || ipv4_in_cidr(ip, [203, 0, 113, 0], 24)   // TEST-NET-3 (RFC 5737)
-        || ipv4_in_cidr(ip, [240, 0, 0, 0], 4)      // Reserved (RFC 6890)
+        || ipv4_in_cidr(ip, [240, 0, 0, 0], 4) // Reserved (RFC 6890)
 }
 
 fn ipv4_in_cidr(ip: Ipv4Addr, base: [u8; 4], prefix: u8) -> bool {

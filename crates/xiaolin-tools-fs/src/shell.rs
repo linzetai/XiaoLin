@@ -201,7 +201,8 @@ pub fn validate_readonly_command(command: &str) -> Result<(), String> {
 pub fn validate_command_paths(command: &str, allowed_dirs: &[String]) -> Result<(), String> {
     use crate::shell_path_validation::{PathValidator, PathVerdict};
 
-    let roots: Vec<std::path::PathBuf> = allowed_dirs.iter().map(std::path::PathBuf::from).collect();
+    let roots: Vec<std::path::PathBuf> =
+        allowed_dirs.iter().map(std::path::PathBuf::from).collect();
     let validator = PathValidator::new(roots);
     match validator.validate(command) {
         PathVerdict::Safe => Ok(()),
@@ -698,8 +699,6 @@ fn contains_unescaped_backticks(s: &str) -> bool {
     }
     false
 }
-
-
 
 #[cfg(test)]
 mod tests {

@@ -282,9 +282,7 @@ impl PolicyEngine {
                             .iter()
                             .map(|p| match p {
                                 config::PatternElement::Exact(s) => s.clone(),
-                                config::PatternElement::Alternatives(alts) => {
-                                    alts.join("|")
-                                }
+                                config::PatternElement::Alternatives(alts) => alts.join("|"),
                             })
                             .collect(),
                         justification: rule.justification.clone(),
@@ -1025,7 +1023,9 @@ decision = "prompt"
         assert!(!engine.is_loaded());
         let eval = engine.evaluate(&["ls", "-la"]);
         assert!(eval.is_forbidden());
-        assert!(engine.evaluate_network("example.com", "https").is_forbidden());
+        assert!(engine
+            .evaluate_network("example.com", "https")
+            .is_forbidden());
     }
 
     #[test]
@@ -1080,10 +1080,7 @@ decision = "allow"
         // Lookup should be O(1) via HashMap, not O(n) linear scan
         let eval = engine.evaluate(&["cmd50"]);
         assert!(eval.is_allowed());
-        assert_eq!(
-            eval.matched_rules[0].rule_id,
-            Some("rule-50".to_string())
-        );
+        assert_eq!(eval.matched_rules[0].rule_id, Some("rule-50".to_string()));
 
         let eval = engine.evaluate(&["cmd99"]);
         assert!(eval.is_allowed());
@@ -1128,12 +1125,11 @@ decision = "allow"
             )
             .unwrap();
 
-        let eval = engine.evaluate_with_heuristics(&["echo", "hello"], |_| {
-            PolicyDecision::Forbidden {
+        let eval =
+            engine.evaluate_with_heuristics(&["echo", "hello"], |_| PolicyDecision::Forbidden {
                 rule_id: None,
                 justification: "should not be called".to_string(),
-            }
-        });
+            });
         assert!(eval.is_allowed());
         assert!(!eval.matched_rules[0].is_heuristic);
     }
@@ -1183,10 +1179,16 @@ decision = "forbidden"
             )
             .unwrap();
 
-        assert!(engine.evaluate_network("api.github.com", "https").is_allowed());
-        assert!(engine.evaluate_network("api.github.com", "HTTPS").is_allowed());
+        assert!(engine
+            .evaluate_network("api.github.com", "https")
+            .is_allowed());
+        assert!(engine
+            .evaluate_network("api.github.com", "HTTPS")
+            .is_allowed());
         assert!(engine.evaluate_network("github.com", "ssh").is_allowed());
-        assert!(engine.evaluate_network("api.github.com", "http").is_forbidden());
+        assert!(engine
+            .evaluate_network("api.github.com", "http")
+            .is_forbidden());
         assert!(engine.evaluate_network("evil.com", "https").is_forbidden());
     }
 
@@ -1234,9 +1236,15 @@ decision = "forbidden"
             .unwrap();
 
         // Match even when caller provides URL-like host or uppercase
-        assert!(engine.evaluate_network("https://api.github.com", "https").is_allowed());
-        assert!(engine.evaluate_network("API.GITHUB.COM", "https").is_allowed());
-        assert!(engine.evaluate_network("api.github.com:443", "https").is_allowed());
+        assert!(engine
+            .evaluate_network("https://api.github.com", "https")
+            .is_allowed());
+        assert!(engine
+            .evaluate_network("API.GITHUB.COM", "https")
+            .is_allowed());
+        assert!(engine
+            .evaluate_network("api.github.com:443", "https")
+            .is_allowed());
     }
 
     #[test]
@@ -1254,8 +1262,12 @@ decision = "allow"
             )
             .unwrap();
 
-        assert!(engine.evaluate_network("internal.corp", "https").is_allowed());
-        assert!(engine.evaluate_network("internal.corp", "http").is_allowed());
+        assert!(engine
+            .evaluate_network("internal.corp", "https")
+            .is_allowed());
+        assert!(engine
+            .evaluate_network("internal.corp", "http")
+            .is_allowed());
         assert!(engine.evaluate_network("internal.corp", "ssh").is_allowed());
     }
 
@@ -1417,16 +1429,11 @@ decision = "forbidden"
     #[test]
     fn merge_overlay_host_executables_override() {
         let mut base = PolicyEngine::new();
-        base.set_host_executable_paths(
-            "node".into(),
-            vec![PathBuf::from("/usr/bin/node")],
-        );
+        base.set_host_executable_paths("node".into(), vec![PathBuf::from("/usr/bin/node")]);
 
         let mut overlay = PolicyEngine::new();
-        overlay.set_host_executable_paths(
-            "node".into(),
-            vec![PathBuf::from("/usr/local/bin/node")],
-        );
+        overlay
+            .set_host_executable_paths("node".into(), vec![PathBuf::from("/usr/local/bin/node")]);
 
         let merged = base.merge_overlay(&overlay);
         let paths = merged.host_executables().get("node").unwrap();

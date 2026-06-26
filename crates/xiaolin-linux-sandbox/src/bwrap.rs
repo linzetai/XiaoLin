@@ -20,11 +20,11 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use xiaolin_core::path::AbsolutePathBuf;
 use xiaolin_security::permission_profile::{
-    FileSystemAccessMode, FileSystemPath, FileSystemSandboxPolicy, FileSystemSpecialPath,
-    WritableRoot, is_protected_metadata_name,
+    is_protected_metadata_name, FileSystemAccessMode, FileSystemPath, FileSystemSandboxPolicy,
+    FileSystemSpecialPath, WritableRoot,
 };
 
 const LINUX_PLATFORM_DEFAULT_READ_ROOTS: &[&str] = &[
@@ -199,8 +199,7 @@ impl ProtectedCreateTarget {
     }
 }
 
-pub const WSL1_BWRAP_WARNING: &str =
-    "bubblewrap is not supported on WSL1; please upgrade to WSL2";
+pub const WSL1_BWRAP_WARNING: &str = "bubblewrap is not supported on WSL1; please upgrade to WSL2";
 
 /// Check if we're running on WSL1.
 pub fn is_wsl1() -> bool {
@@ -1238,20 +1237,13 @@ fn find_first_non_existent_component(target_path: &Path) -> Option<PathBuf> {
 
 /// Execute the child command within a bubblewrap sandbox.
 /// This replaces the current process via exec.
-pub fn exec_with_bwrap(
-    bwrap_args: BwrapArgs,
-    bwrap_path: Option<&str>,
-) -> Result<()> {
+pub fn exec_with_bwrap(bwrap_args: BwrapArgs, bwrap_path: Option<&str>) -> Result<()> {
     let bwrap_exe = match bwrap_path {
         Some(p) => p.to_string(),
         None => find_bwrap()?,
     };
 
-    tracing::info!(
-        "exec bwrap: {} {}",
-        bwrap_exe,
-        bwrap_args.args.join(" ")
-    );
+    tracing::info!("exec bwrap: {} {}", bwrap_exe, bwrap_args.args.join(" "));
 
     let program = std::ffi::CString::new(bwrap_exe.as_bytes())
         .map_err(|e| anyhow::anyhow!("invalid bwrap path: {e}"))?;
@@ -1470,10 +1462,8 @@ mod tests {
             std::fs::set_permissions(&fake_bwrap, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
 
-        let result = find_system_bwrap_in_search_paths(
-            vec![tmpdir.path().to_path_buf()],
-            tmpdir.path(),
-        );
+        let result =
+            find_system_bwrap_in_search_paths(vec![tmpdir.path().to_path_buf()], tmpdir.path());
         assert!(result.is_none(), "should skip bwrap under cwd");
     }
 

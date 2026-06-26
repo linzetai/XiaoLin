@@ -8,7 +8,7 @@ use crate::network_policy::{
 };
 use crate::policy::normalize_host;
 use crate::reasons::*;
-use crate::responses::{PolicyDecisionDetails, blocked_header_value, blocked_message};
+use crate::responses::{blocked_header_value, blocked_message, PolicyDecisionDetails};
 use crate::runtime::{BlockedRequestArgs, ConfigSnapshot, NetworkProxyState};
 use anyhow::{Context, Result};
 use bytes::Bytes;
@@ -75,10 +75,7 @@ pub async fn run_http_proxy_on_listener(
 }
 
 /// Bind and run the HTTP proxy engine (convenience wrapper).
-pub async fn run_http_proxy(
-    state: Arc<NetworkProxyState>,
-    addr: SocketAddr,
-) -> Result<()> {
+pub async fn run_http_proxy(state: Arc<NetworkProxyState>, addr: SocketAddr) -> Result<()> {
     let listener = TcpListener::bind(addr)
         .await
         .with_context(|| format!("bind HTTP proxy: {addr}"))?;
@@ -202,15 +199,21 @@ async fn handle_connect(
             &host,
             port,
         );
-        record_blocked(state, &host, REASON_MODE_GUARD, &client_addr, Some("CONNECT"), port)
-            .await;
+        record_blocked(
+            state,
+            &host,
+            REASON_MODE_GUARD,
+            &client_addr,
+            Some("CONNECT"),
+            port,
+        )
+        .await;
         warn!("CONNECT blocked; MITM required for limited mode (host={host})");
         return Ok(blocked_response(&details));
     }
 
-    let use_mitm = snap.mitm_enabled
-        && snap.mode == NetworkMode::Limited
-        && state.mitm_state().is_some();
+    let use_mitm =
+        snap.mitm_enabled && snap.mode == NetworkMode::Limited && state.mitm_state().is_some();
 
     if use_mitm {
         info!("CONNECT MITM tunnel -> {host}:{port}");
@@ -222,15 +225,9 @@ async fn handle_connect(
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
                     let stream = hyper_util::rt::TokioIo::new(upgraded);
-                    if let Err(e) = mitm::mitm_tunnel(
-                        stream,
-                        &host_owned,
-                        port,
-                        mode,
-                        app_state,
-                        mitm_state,
-                    )
-                    .await
+                    if let Err(e) =
+                        mitm::mitm_tunnel(stream, &host_owned, port, mode, app_state, mitm_state)
+                            .await
                     {
                         warn!("MITM tunnel error for {host_owned}:{port}: {e}");
                     }
@@ -471,7 +468,9 @@ fn parse_authority(authority: &str) -> Result<(String, u16)> {
     if authority.starts_with('[') {
         if let Some(bracket_end) = authority.find(']') {
             let host = &authority[1..bracket_end];
-            let port = if authority.len() > bracket_end + 1 && authority.as_bytes()[bracket_end + 1] == b':' {
+            let port = if authority.len() > bracket_end + 1
+                && authority.as_bytes()[bracket_end + 1] == b':'
+            {
                 authority[bracket_end + 2..].parse().unwrap_or(443)
             } else {
                 443

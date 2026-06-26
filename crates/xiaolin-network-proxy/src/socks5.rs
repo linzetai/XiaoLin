@@ -63,10 +63,7 @@ pub async fn run_socks5_proxy_on_listener(
 }
 
 /// Bind and run the SOCKS5 proxy engine (convenience wrapper).
-pub async fn run_socks5_proxy(
-    state: Arc<NetworkProxyState>,
-    addr: SocketAddr,
-) -> Result<()> {
+pub async fn run_socks5_proxy(state: Arc<NetworkProxyState>, addr: SocketAddr) -> Result<()> {
     let listener = TcpListener::bind(addr)
         .await
         .with_context(|| format!("bind SOCKS5 proxy: {addr}"))?;
@@ -88,7 +85,9 @@ async fn handle_socks5_connection(
     stream.read_exact(&mut methods).await?;
 
     if !methods.contains(&AUTH_NO_AUTH) {
-        stream.write_all(&[SOCKS5_VERSION, AUTH_NO_ACCEPTABLE]).await?;
+        stream
+            .write_all(&[SOCKS5_VERSION, AUTH_NO_ACCEPTABLE])
+            .await?;
         return Err(anyhow::anyhow!("no acceptable auth method"));
     }
 
@@ -110,8 +109,15 @@ async fn handle_socks5_connection(
 
     match cmd {
         CMD_CONNECT => {
-            handle_connect_cmd(&state, &snap, &mut stream, client_addr, &normalized_host, port)
-                .await
+            handle_connect_cmd(
+                &state,
+                &snap,
+                &mut stream,
+                client_addr,
+                &normalized_host,
+                port,
+            )
+            .await
         }
         CMD_UDP_ASSOCIATE => {
             send_reply(&mut stream, REP_CMD_NOT_SUPPORTED, "0.0.0.0", 0).await?;
@@ -169,9 +175,8 @@ async fn handle_connect_cmd(
         return Ok(());
     }
 
-    let use_mitm = snap.mitm_enabled
-        && snap.mode == NetworkMode::Limited
-        && state.mitm_state().is_some();
+    let use_mitm =
+        snap.mitm_enabled && snap.mode == NetworkMode::Limited && state.mitm_state().is_some();
     if snap.mode == NetworkMode::Limited && !use_mitm {
         let _ = state
             .record_blocked(BlockedRequestArgs {
@@ -237,8 +242,8 @@ async fn read_address(stream: &mut TcpStream, atyp: u8) -> Result<(String, u16)>
             let mut domain = vec![0u8; len];
             stream.read_exact(&mut domain).await?;
             let port = stream.read_u16().await?;
-            let domain = String::from_utf8(domain)
-                .map_err(|_| anyhow::anyhow!("invalid UTF-8 domain"))?;
+            let domain =
+                String::from_utf8(domain).map_err(|_| anyhow::anyhow!("invalid UTF-8 domain"))?;
             Ok((domain, port))
         }
         ATYP_IPV6 => {

@@ -173,9 +173,10 @@ fn find_system_bwrap_in_search_paths(
     let search_path = std::env::join_paths(search_paths).ok()?;
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     let cwd_is_root = cwd.parent().is_none();
-    let candidates: Vec<PathBuf> = which::which_in_all(SYSTEM_BWRAP_PROGRAM, Some(search_path), &cwd)
-        .ok()?
-        .collect();
+    let candidates: Vec<PathBuf> =
+        which::which_in_all(SYSTEM_BWRAP_PROGRAM, Some(search_path), &cwd)
+            .ok()?
+            .collect();
     candidates.into_iter().find_map(|path| {
         let path = std::fs::canonicalize(path).ok()?;
         if !cwd_is_root && path.starts_with(&cwd) {
@@ -224,7 +225,10 @@ mod tests {
                 stdout: Vec::new(),
                 stderr: failure.as_bytes().to_vec(),
             };
-            assert!(is_user_namespace_failure(&output), "should detect: {failure}");
+            assert!(
+                is_user_namespace_failure(&output),
+                "should detect: {failure}"
+            );
         }
     }
 
@@ -256,10 +260,8 @@ mod tests {
             std::fs::set_permissions(&fake_bwrap, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
 
-        let result = find_system_bwrap_in_search_paths(
-            vec![tmpdir.path().to_path_buf()],
-            tmpdir.path(),
-        );
+        let result =
+            find_system_bwrap_in_search_paths(vec![tmpdir.path().to_path_buf()], tmpdir.path());
         assert!(result.is_none(), "should skip bwrap under cwd");
     }
 }

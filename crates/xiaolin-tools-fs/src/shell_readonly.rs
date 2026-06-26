@@ -522,8 +522,19 @@ fn classify_segment(segment: &str) -> CommandClassification {
     // Generic script/network executors are never readonly (Plan mode safety)
     if matches!(
         base_cmd,
-        "python3" | "python" | "node" | "ruby" | "xargs" | "curl" | "wget" | "make" | "cmake"
-            | "rustc" | "gcc" | "g++" | "clang"
+        "python3"
+            | "python"
+            | "node"
+            | "ruby"
+            | "xargs"
+            | "curl"
+            | "wget"
+            | "make"
+            | "cmake"
+            | "rustc"
+            | "gcc"
+            | "g++"
+            | "clang"
     ) {
         return CommandClassification::Write {
             reason: format!("'{base_cmd}' is a generic executor and not allowed in read-only mode"),

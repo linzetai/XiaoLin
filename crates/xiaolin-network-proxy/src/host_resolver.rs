@@ -5,7 +5,7 @@
 
 use std::net::{IpAddr, SocketAddr};
 
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{anyhow, ensure, Context, Result};
 
 use crate::config::HostMapping;
 

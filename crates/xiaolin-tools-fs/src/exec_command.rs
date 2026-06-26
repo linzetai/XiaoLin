@@ -397,7 +397,14 @@ pub mod pty_session {
                 }
             }
 
-            let session_id = format!("pty_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0"));
+            let session_id = format!(
+                "pty_{}",
+                uuid::Uuid::new_v4()
+                    .to_string()
+                    .split('-')
+                    .next()
+                    .unwrap_or("0")
+            );
 
             let mut command = Command::new(shell);
             command.arg("-c").arg(cmd);

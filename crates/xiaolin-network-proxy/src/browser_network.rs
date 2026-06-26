@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{HostMapping, validate_host_mapping};
+use crate::config::{validate_host_mapping, HostMapping};
 
 /// How browser WebViews route outbound traffic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -79,7 +79,11 @@ impl BrowserNetworkConfig {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        for m in self.host_mappings.iter().chain(self.session_host_mappings.iter()) {
+        for m in self
+            .host_mappings
+            .iter()
+            .chain(self.session_host_mappings.iter())
+        {
             validate_host_mapping(m)?;
         }
         if let Some(url) = &self.custom_proxy_url {
@@ -124,7 +128,8 @@ pub fn save_config(config: &BrowserNetworkConfig, path: Option<&Path>) -> Result
     let default_path = default_config_path();
     let path = path.unwrap_or(&default_path);
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create config directory: {e}"))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create config directory: {e}"))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -133,7 +138,8 @@ pub fn save_config(config: &BrowserNetworkConfig, path: Option<&Path>) -> Result
     }
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| format!("failed to serialize browser network config: {e}"))?;
-    std::fs::write(path, json).map_err(|e| format!("failed to write browser network config: {e}"))?;
+    std::fs::write(path, json)
+        .map_err(|e| format!("failed to write browser network config: {e}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

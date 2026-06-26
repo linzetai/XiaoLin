@@ -375,8 +375,11 @@ impl LspSessionManager {
         }
         tracing::info!(count = sessions.len(), "shutting down all LSP sessions");
         for session in sessions {
-            match tokio::time::timeout(Duration::from_secs(5), shutdown_lsp_session(session.clone()))
-                .await
+            match tokio::time::timeout(
+                Duration::from_secs(5),
+                shutdown_lsp_session(session.clone()),
+            )
+            .await
             {
                 Ok(()) => {}
                 Err(_) => {
@@ -394,11 +397,7 @@ impl LspSessionManager {
             .try_read()
             .ok()
             .and_then(|g| g.clone());
-        let active_count = self
-            .sessions
-            .try_read()
-            .map(|g| g.len())
-            .unwrap_or(0);
+        let active_count = self.sessions.try_read().map(|g| g.len()).unwrap_or(0);
         serde_json::json!({
             "sessionsCreated": self.sessions_created.load(Ordering::Relaxed),
             "sessionsReused": self.sessions_reused.load(Ordering::Relaxed),
@@ -648,7 +647,9 @@ impl PersistentLspSession {
             }
             let msg = tokio::time::timeout(Duration::from_secs(30), self.read_message())
                 .await
-                .map_err(|_| anyhow::anyhow!("lsp request timed out waiting for response id {id}"))??;
+                .map_err(|_| {
+                    anyhow::anyhow!("lsp request timed out waiting for response id {id}")
+                })??;
             if msg.get("id").and_then(|v| v.as_u64()) == Some(id) {
                 if let Some(err) = msg.get("error") {
                     return Err(anyhow::anyhow!("lsp error: {}", err));
@@ -735,9 +736,7 @@ async fn shutdown_lsp_session(session: Arc<Mutex<PersistentLspSession>>) {
     }
 }
 
-async fn gc_idle_lsp_sessions(
-    sessions: &Arc<RwLock<HashMap<String, LspSessionEntry>>>,
-) -> usize {
+async fn gc_idle_lsp_sessions(sessions: &Arc<RwLock<HashMap<String, LspSessionEntry>>>) -> usize {
     let to_remove: Vec<String> = {
         let g = sessions.read().await;
         g.iter()

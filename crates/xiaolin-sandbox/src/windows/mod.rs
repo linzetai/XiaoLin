@@ -34,7 +34,13 @@ pub fn transform(
     fs_policy: &FileSystemSandboxPolicy,
     net_policy: NetworkSandboxPolicy,
 ) -> SandboxedCommand {
-    transform_with_level(command, shell, fs_policy, net_policy, WindowsSandboxLevel::default())
+    transform_with_level(
+        command,
+        shell,
+        fs_policy,
+        net_policy,
+        WindowsSandboxLevel::default(),
+    )
 }
 
 /// Transform a shell command for Windows RestrictedToken sandbox with an
@@ -106,7 +112,12 @@ mod tests {
 
     #[test]
     fn windows_transform_uses_cmd() {
-        let cmd = transform("echo hello", "cmd", &unrestricted_fs(), NetworkSandboxPolicy::Enabled);
+        let cmd = transform(
+            "echo hello",
+            "cmd",
+            &unrestricted_fs(),
+            NetworkSandboxPolicy::Enabled,
+        );
         assert_eq!(cmd.program, "cmd.exe");
         assert_eq!(cmd.sandbox_type, SandboxType::RestrictedToken);
         assert!(cmd.args.contains(&"/C".to_string()));
@@ -126,7 +137,12 @@ mod tests {
 
     #[test]
     fn windows_transform_sets_env_markers() {
-        let cmd = transform("dir", "cmd", &locked_down_fs(), NetworkSandboxPolicy::Restricted);
+        let cmd = transform(
+            "dir",
+            "cmd",
+            &locked_down_fs(),
+            NetworkSandboxPolicy::Restricted,
+        );
         assert_eq!(cmd.env.get("XIAOLIN_SANDBOXED").unwrap(), "1");
         assert!(cmd.env.contains_key("XIAOLIN_SANDBOX_FS_POLICY"));
         assert!(cmd.env.contains_key("XIAOLIN_SANDBOX_NET_POLICY"));
@@ -134,7 +150,10 @@ mod tests {
 
     #[test]
     fn windows_sandbox_level_default_is_standard() {
-        assert_eq!(WindowsSandboxLevel::default(), WindowsSandboxLevel::Standard);
+        assert_eq!(
+            WindowsSandboxLevel::default(),
+            WindowsSandboxLevel::Standard
+        );
     }
 
     #[test]

@@ -150,19 +150,12 @@ pub fn build_seatbelt_access_policy(
         params.push((param_name.clone(), path.clone()));
 
         if root.excluded_subpaths.is_empty() && root.protected_metadata_names.is_empty() {
-            rules.push(format!(
-                "(allow {action} (subpath \"{path}\"))"
-            ));
+            rules.push(format!("(allow {action} (subpath \"{path}\"))"));
         } else {
-            let mut conditions = vec![format!(
-                "(subpath \"{path}\")"
-            )];
+            let mut conditions = vec![format!("(subpath \"{path}\")")];
 
             for excl in &root.excluded_subpaths {
-                conditions.push(format!(
-                    "(require-not (subpath \"{}\"))",
-                    excl.display()
-                ));
+                conditions.push(format!("(require-not (subpath \"{}\"))", excl.display()));
             }
 
             for name in &root.protected_metadata_names {
@@ -171,9 +164,7 @@ pub fn build_seatbelt_access_policy(
             }
 
             let inner = conditions.join("\n    ");
-            rules.push(format!(
-                "(allow {action}\n  (require-all\n    {inner}))"
-            ));
+            rules.push(format!("(allow {action}\n  (require-all\n    {inner}))"));
         }
     }
 
@@ -191,8 +182,7 @@ fn regex_escape_seatbelt(s: &str) -> String {
     let mut result = String::with_capacity(s.len() * 2);
     for c in s.chars() {
         match c {
-            '.' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|'
-            | '\\' => {
+            '.' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '\\' => {
                 result.push('\\');
                 result.push(c);
             }
@@ -465,10 +455,8 @@ impl ProxyPolicyInputs {
         Self {
             ports,
             has_proxy_config: has_proxy,
-            allow_local_binding: std::env::var(
-                xiaolin_network_proxy::ALLOW_LOCAL_BINDING_ENV_KEY,
-            )
-            .is_ok(),
+            allow_local_binding: std::env::var(xiaolin_network_proxy::ALLOW_LOCAL_BINDING_ENV_KEY)
+                .is_ok(),
             unix_socket_policy: UnixDomainSocketPolicy::AllowAll,
         }
     }
@@ -483,13 +471,11 @@ pub type SeatbeltNetworkOptions = ProxyPolicyInputs;
 ///   for all unix sockets.
 /// - `Restricted`: allows per-path `subpath` rules for bind and outbound.
 fn unix_socket_policy(proxy: &ProxyPolicyInputs) -> String {
-    let has_access = matches!(
-        proxy.unix_socket_policy,
-        UnixDomainSocketPolicy::AllowAll
-    ) || matches!(
-        &proxy.unix_socket_policy,
-        UnixDomainSocketPolicy::Restricted { allowed } if !allowed.is_empty()
-    );
+    let has_access = matches!(proxy.unix_socket_policy, UnixDomainSocketPolicy::AllowAll)
+        || matches!(
+            &proxy.unix_socket_policy,
+            UnixDomainSocketPolicy::Restricted { allowed } if !allowed.is_empty()
+        );
     if !has_access {
         return String::new();
     }
@@ -506,9 +492,14 @@ fn unix_socket_policy(proxy: &ProxyPolicyInputs) -> String {
     if let UnixDomainSocketPolicy::Restricted { allowed } = &proxy.unix_socket_policy {
         for path in allowed {
             let display = path.display();
-            let _ = writeln!(policy, "(allow network-bind (local unix-socket (subpath \"{display}\")))");
-            let _ = writeln!(policy, "(allow network-outbound (remote unix-socket (subpath \"{display}\")))");
-
+            let _ = writeln!(
+                policy,
+                "(allow network-bind (local unix-socket (subpath \"{display}\")))"
+            );
+            let _ = writeln!(
+                policy,
+                "(allow network-outbound (remote unix-socket (subpath \"{display}\")))"
+            );
         }
     }
 
@@ -557,7 +548,10 @@ pub fn dynamic_network_policy(
         }
 
         for port in &proxy.ports {
-            let _ = writeln!(policy, "(allow network-outbound (remote ip \"localhost:{port}\"))");
+            let _ = writeln!(
+                policy,
+                "(allow network-outbound (remote ip \"localhost:{port}\"))"
+            );
         }
 
         let socket_policy = unix_socket_policy(proxy);
@@ -570,8 +564,7 @@ pub fn dynamic_network_policy(
     }
 
     if network_enabled {
-        let mut policy =
-            String::from("(allow network-outbound)\n(allow network-inbound)\n");
+        let mut policy = String::from("(allow network-outbound)\n(allow network-inbound)\n");
         let socket_policy = unix_socket_policy(proxy);
         if !socket_policy.is_empty() {
             policy.push_str("; allow unix domain sockets for local IPC\n");
@@ -768,7 +761,13 @@ mod tests {
 
     #[test]
     fn seatbelt_transform_uses_absolute_path() {
-        let cmd = transform("echo hello", "bash", &unrestricted_fs(), NetworkSandboxPolicy::Enabled, &test_cwd());
+        let cmd = transform(
+            "echo hello",
+            "bash",
+            &unrestricted_fs(),
+            NetworkSandboxPolicy::Enabled,
+            &test_cwd(),
+        );
         assert_eq!(cmd.program, "/usr/bin/sandbox-exec");
         assert_eq!(cmd.sandbox_type, SandboxType::Seatbelt);
         assert!(cmd.args.contains(&"-p".to_string()));
@@ -778,7 +777,11 @@ mod tests {
 
     #[test]
     fn seatbelt_policy_uses_base_template() {
-        let policy = build_seatbelt_policy(&unrestricted_fs(), NetworkSandboxPolicy::Enabled, &test_cwd());
+        let policy = build_seatbelt_policy(
+            &unrestricted_fs(),
+            NetworkSandboxPolicy::Enabled,
+            &test_cwd(),
+        );
         assert!(policy.contains("(version 1)"));
         assert!(policy.contains("(deny default)"));
         assert!(policy.contains("(allow process-exec)"));
@@ -787,7 +790,11 @@ mod tests {
 
     #[test]
     fn seatbelt_policy_unrestricted_allows_all() {
-        let policy = build_seatbelt_policy(&unrestricted_fs(), NetworkSandboxPolicy::Enabled, &test_cwd());
+        let policy = build_seatbelt_policy(
+            &unrestricted_fs(),
+            NetworkSandboxPolicy::Enabled,
+            &test_cwd(),
+        );
         assert!(policy.contains("(allow file-read* file-write*)"));
         assert!(policy.contains("(allow network-outbound)"));
         assert!(policy.contains(SEATBELT_NETWORK_POLICY));
@@ -810,8 +817,7 @@ mod tests {
             SeatbeltAccessRoot::simple("/home/user"),
             SeatbeltAccessRoot::simple("/tmp"),
         ];
-        let (params, policy) =
-            build_seatbelt_access_policy("file-write*", "WRITABLE_ROOT", &roots);
+        let (params, policy) = build_seatbelt_access_policy("file-write*", "WRITABLE_ROOT", &roots);
 
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].0, "WRITABLE_ROOT_0");
@@ -913,9 +919,7 @@ mod tests {
     #[test]
     fn unix_socket_policy_restricted_empty() {
         let proxy = ProxyPolicyInputs {
-            unix_socket_policy: UnixDomainSocketPolicy::Restricted {
-                allowed: vec![],
-            },
+            unix_socket_policy: UnixDomainSocketPolicy::Restricted { allowed: vec![] },
             ..Default::default()
         };
         let policy = unix_socket_policy(&proxy);
@@ -960,9 +964,7 @@ mod tests {
                 ports: vec![],
                 has_proxy_config: false,
                 allow_local_binding: false,
-                unix_socket_policy: UnixDomainSocketPolicy::Restricted {
-                    allowed: vec![],
-                },
+                unix_socket_policy: UnixDomainSocketPolicy::Restricted { allowed: vec![] },
             },
         );
         assert!(policy.is_empty());
@@ -970,10 +972,8 @@ mod tests {
 
     #[test]
     fn dynamic_network_policy_enabled_full_access() {
-        let policy = dynamic_network_policy(
-            NetworkSandboxPolicy::Enabled,
-            &ProxyPolicyInputs::default(),
-        );
+        let policy =
+            dynamic_network_policy(NetworkSandboxPolicy::Enabled, &ProxyPolicyInputs::default());
         assert!(policy.contains("(allow network-outbound)"));
         assert!(policy.contains("(allow network-inbound)"));
     }
@@ -989,13 +989,21 @@ mod tests {
 
     #[test]
     fn seatbelt_policy_network_enabled() {
-        let policy = build_seatbelt_policy(&unrestricted_fs(), NetworkSandboxPolicy::Enabled, &test_cwd());
+        let policy = build_seatbelt_policy(
+            &unrestricted_fs(),
+            NetworkSandboxPolicy::Enabled,
+            &test_cwd(),
+        );
         assert!(policy.contains("(allow network-outbound)"));
     }
 
     #[test]
     fn seatbelt_policy_network_restricted_denies() {
-        let policy = build_seatbelt_policy(&unrestricted_fs(), NetworkSandboxPolicy::Restricted, &test_cwd());
+        let policy = build_seatbelt_policy(
+            &unrestricted_fs(),
+            NetworkSandboxPolicy::Restricted,
+            &test_cwd(),
+        );
         assert!(!policy.contains("(allow network-outbound)"));
         assert!(policy.contains("network access denied"));
     }
@@ -1043,8 +1051,7 @@ mod tests {
 
     #[test]
     fn canonicalize_glob_preserves_suffix() {
-        let result =
-            canonicalize_glob_static_prefix_for_sandbox("/tmp/**/.env");
+        let result = canonicalize_glob_static_prefix_for_sandbox("/tmp/**/.env");
         // /tmp exists, so canonicalize may resolve it. The suffix should be preserved.
         if let Some(pattern) = result {
             assert!(pattern.ends_with("/**/.env"));
@@ -1114,9 +1121,7 @@ mod tests {
                 ports: vec![],
                 has_proxy_config: false,
                 allow_local_binding: false,
-                unix_socket_policy: UnixDomainSocketPolicy::Restricted {
-                    allowed: vec![],
-                },
+                unix_socket_policy: UnixDomainSocketPolicy::Restricted { allowed: vec![] },
             }),
             extra_allow_unix_sockets: vec!["/var/run/docker.sock".into()],
         };
@@ -1188,8 +1193,7 @@ mod tests {
     #[test]
     fn build_access_policy_single_root_no_index() {
         let roots = vec![SeatbeltAccessRoot::simple("/home/user")];
-        let (params, policy) =
-            build_seatbelt_access_policy("file-read*", "ROOT", &roots);
+        let (params, policy) = build_seatbelt_access_policy("file-read*", "ROOT", &roots);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].0, "ROOT");
         assert!(policy.contains("/home/user"));
@@ -1197,7 +1201,13 @@ mod tests {
 
     #[test]
     fn seatbelt_env_contains_sandbox_marker() {
-        let cmd = transform("echo", "sh", &unrestricted_fs(), NetworkSandboxPolicy::Enabled, &test_cwd());
+        let cmd = transform(
+            "echo",
+            "sh",
+            &unrestricted_fs(),
+            NetworkSandboxPolicy::Enabled,
+            &test_cwd(),
+        );
         assert_eq!(cmd.env.get("XIAOLIN_SANDBOXED"), Some(&"1".to_string()));
     }
 
@@ -1311,7 +1321,13 @@ mod tests {
     #[test]
     fn seatbelt_transform_sets_working_dir() {
         let cwd = PathBuf::from("/home/user/project");
-        let cmd = transform("echo hi", "sh", &unrestricted_fs(), NetworkSandboxPolicy::Enabled, &cwd);
+        let cmd = transform(
+            "echo hi",
+            "sh",
+            &unrestricted_fs(),
+            NetworkSandboxPolicy::Enabled,
+            &cwd,
+        );
         assert_eq!(cmd.working_dir, Some(cwd));
     }
 

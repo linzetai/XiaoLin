@@ -80,10 +80,7 @@ impl NetworkMode {
     pub fn allows_method(&self, method: &str) -> bool {
         match self {
             Self::Full | Self::Audit | Self::Off => true,
-            Self::Limited => matches!(
-                method.to_uppercase().as_str(),
-                "GET" | "HEAD" | "OPTIONS"
-            ),
+            Self::Limited => matches!(method.to_uppercase().as_str(), "GET" | "HEAD" | "OPTIONS"),
         }
     }
 }
@@ -168,7 +165,9 @@ impl NetworkProxySettings {
     }
 
     pub fn set_allowed_domains(&mut self, hosts: Vec<String>) {
-        self.domains.entries.retain(|e| e.permission != NetworkDomainPermission::Allow);
+        self.domains
+            .entries
+            .retain(|e| e.permission != NetworkDomainPermission::Allow);
         for host in hosts {
             self.domains.entries.push(NetworkDomainPermissionEntry {
                 host,
@@ -178,7 +177,9 @@ impl NetworkProxySettings {
     }
 
     pub fn set_denied_domains(&mut self, hosts: Vec<String>) {
-        self.domains.entries.retain(|e| e.permission != NetworkDomainPermission::Deny);
+        self.domains
+            .entries
+            .retain(|e| e.permission != NetworkDomainPermission::Deny);
         for host in hosts {
             self.domains.entries.push(NetworkDomainPermissionEntry {
                 host,
@@ -191,10 +192,9 @@ impl NetworkProxySettings {
         if let Some(entry) = self.domains.entries.iter_mut().find(|e| e.host == host) {
             entry.permission = permission;
         } else {
-            self.domains.entries.push(NetworkDomainPermissionEntry {
-                host,
-                permission,
-            });
+            self.domains
+                .entries
+                .push(NetworkDomainPermissionEntry { host, permission });
         }
     }
 
@@ -228,7 +228,10 @@ pub fn host_and_port_from_network_addr(addr: &str) -> Option<(String, u16)> {
 fn parse_host_port(addr: &str) -> Option<(String, u16)> {
     if let Ok(url) = url::Url::parse(&format!("scheme://{addr}")) {
         let host = url.host_str()?;
-        let host = host.trim_start_matches('[').trim_end_matches(']').to_string();
+        let host = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .to_string();
         let port = url.port()?;
         return Some((host, port));
     }
@@ -276,7 +279,10 @@ impl ValidatedUnixSocketPath {
 pub fn validate_unix_socket_allowlist_paths(
     paths: &[PathBuf],
 ) -> Result<Vec<ValidatedUnixSocketPath>, String> {
-    paths.iter().map(|p| ValidatedUnixSocketPath::new(p.clone())).collect()
+    paths
+        .iter()
+        .map(|p| ValidatedUnixSocketPath::new(p.clone()))
+        .collect()
 }
 
 /// Custom host → IP mapping for browser / proxy DNS rewrite.

@@ -100,10 +100,7 @@ mod tests {
             blocked_header_value(REASON_NOT_ENABLED),
             "blocked-proxy-disabled"
         );
-        assert_eq!(
-            blocked_header_value("unknown_reason"),
-            "blocked-by-policy"
-        );
+        assert_eq!(blocked_header_value("unknown_reason"), "blocked-by-policy");
     }
 
     #[test]

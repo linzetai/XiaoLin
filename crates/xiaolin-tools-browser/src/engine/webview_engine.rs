@@ -155,7 +155,11 @@ impl TauriWebViewEngine {
         args.get("pageId")
             .or(args.get("page_id"))
             .and_then(|v| v.as_str().map(String::from))
-            .or_else(|| args.get("pageId").and_then(|v| v.as_u64()).map(|n| n.to_string()))
+            .or_else(|| {
+                args.get("pageId")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+            })
     }
 
     fn eval(&self, page_id: Option<&str>, js: &str) -> Result<String, String> {
@@ -238,7 +242,8 @@ impl TauriWebViewEngine {
 
         let needs_agent_control = matches!(
             action,
-            "click" | "fill"
+            "click"
+                | "fill"
                 | "fill_form"
                 | "type_text"
                 | "press_key"
@@ -820,10 +825,7 @@ fn webview_interaction_js(action: &str, args: &serde_json::Value) -> Result<Stri
     let selector = args.get("selector").and_then(|v| v.as_str());
     let find = if let Some(u) = uid {
         crate::actions::validate_uid(u)?;
-        format!(
-            "document.querySelector('[data-fc-uid=\"{}\"]')",
-            u
-        )
+        format!("document.querySelector('[data-fc-uid=\"{}\"]')", u)
     } else if let Some(sel) = selector {
         format!(
             "document.querySelector({})",
@@ -865,13 +867,11 @@ fn webview_interaction_js(action: &str, args: &serde_json::Value) -> Result<Stri
 }
 
 fn page_id_from_args_field(args: &serde_json::Value) -> Option<String> {
-    args.get("pageId")
-        .or(args.get("page_id"))
-        .and_then(|v| {
-            v.as_str()
-                .map(String::from)
-                .or_else(|| v.as_u64().map(|n| n.to_string()))
-        })
+    args.get("pageId").or(args.get("page_id")).and_then(|v| {
+        v.as_str()
+            .map(String::from)
+            .or_else(|| v.as_u64().map(|n| n.to_string()))
+    })
 }
 
 fn element_find_expr(args: &serde_json::Value, optional: bool) -> Result<String, String> {
@@ -984,7 +984,7 @@ impl BrowserEngine for TauriWebViewEngine {
         let args = args.clone();
         let engine = TauriWebViewEngine;
         tokio::task::spawn_blocking(move || engine.dispatch_sync(&action, &args))
-        .await
-        .map_err(|e| format!("browser webview: worker panicked: {e}"))?
+            .await
+            .map_err(|e| format!("browser webview: worker panicked: {e}"))?
     }
 }

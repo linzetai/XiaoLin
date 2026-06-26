@@ -10,17 +10,17 @@ use std::time::Duration;
 use async_trait::async_trait;
 use xiaolin_core::tool::{Tool, ToolParameterSchema, ToolRegistry, ToolResult};
 
-pub use network::{
-    execute_network_action, network_bridge_configured, set_browser_network_bridge,
-    set_network_ws_broadcast, broadcast_network_event, validate_network_action,
-    BrowserNetworkBridge,
-};
 pub use engine::{
     browser_clear_user_takeover, browser_context_for_prompt, browser_request_user_takeover,
     default_engine, engine_kind_from_env, set_browser_bridge, BrowserBridge, BrowserEngine,
     CdpEngine, EngineActionResult, TauriWebViewEngine,
 };
 pub use js::{CONTENT_EXTRACT_JS, SELECTION_TOOLBAR_JS, UNTRUSTED_SOURCE, UNTRUSTED_WARNING};
+pub use network::{
+    broadcast_network_event, execute_network_action, network_bridge_configured,
+    set_browser_network_bridge, set_network_ws_broadcast, validate_network_action,
+    BrowserNetworkBridge,
+};
 
 const ACTION_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -505,10 +505,9 @@ impl Tool for BrowserTool {
                 engine.supported_actions().join(", ")
             ));
         }
-        let result = tokio::time::timeout(
-            ACTION_TIMEOUT,
-            async move { engine.execute_action(&action, &args).await },
-        )
+        let result = tokio::time::timeout(ACTION_TIMEOUT, async move {
+            engine.execute_action(&action, &args).await
+        })
         .await;
 
         match result {
@@ -535,10 +534,7 @@ pub fn register_browser_tool(registry: &ToolRegistry) {
 }
 
 /// Register browser tool with an explicit engine implementation.
-pub fn register_browser_tool_with_engine(
-    registry: &ToolRegistry,
-    engine: Arc<dyn BrowserEngine>,
-) {
+pub fn register_browser_tool_with_engine(registry: &ToolRegistry, engine: Arc<dyn BrowserEngine>) {
     tracing::info!(engine = engine.engine_type(), "registering browser tool");
     registry.register_deferred(Arc::new(BrowserTool::with_engine(engine)));
 }
@@ -566,7 +562,10 @@ mod tests {
     #[test]
     fn parse_timeout_defaults() {
         let args = serde_json::json!({});
-        assert_eq!(BrowserTool::parse_timeout(&args), actions::DEFAULT_ELEMENT_TIMEOUT);
+        assert_eq!(
+            BrowserTool::parse_timeout(&args),
+            actions::DEFAULT_ELEMENT_TIMEOUT
+        );
     }
 
     #[test]
@@ -612,12 +611,36 @@ mod tests {
         let enum_vals = action_prop["enum"].as_array().unwrap();
         let actions_list: Vec<&str> = enum_vals.iter().map(|v| v.as_str().unwrap()).collect();
         for a in [
-            "navigate", "take_snapshot", "screenshot", "evaluate", "click", "fill",
-            "fill_form", "type_text", "press_key", "hover", "select", "wait_for",
-            "scroll", "drag", "handle_dialog", "interact", "get_content", "pdf",
-            "list_pages", "select_page", "new_page", "close_page", "cookies",
-            "list_network_requests", "list_console_messages", "get_console_message",
-            "get_network_request", "upload_file", "emulate", "resize_page",
+            "navigate",
+            "take_snapshot",
+            "screenshot",
+            "evaluate",
+            "click",
+            "fill",
+            "fill_form",
+            "type_text",
+            "press_key",
+            "hover",
+            "select",
+            "wait_for",
+            "scroll",
+            "drag",
+            "handle_dialog",
+            "interact",
+            "get_content",
+            "pdf",
+            "list_pages",
+            "select_page",
+            "new_page",
+            "close_page",
+            "cookies",
+            "list_network_requests",
+            "list_console_messages",
+            "get_console_message",
+            "get_network_request",
+            "upload_file",
+            "emulate",
+            "resize_page",
         ] {
             assert!(actions_list.contains(&a), "enum missing action: {a}");
         }

@@ -5,12 +5,12 @@
 //! `$HOME/.xiaolin/proxy/`. Each target host gets a dynamically
 //! issued leaf certificate signed by this CA.
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use rcgen::{
-    BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose,
-    IsCa, KeyPair, KeyUsagePurpose, SanType, PKCS_ECDSA_P256_SHA256,
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa,
+    KeyPair, KeyUsagePurpose, SanType, PKCS_ECDSA_P256_SHA256,
 };
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::net::IpAddr;
@@ -34,8 +34,7 @@ impl ManagedMitmCa {
     /// Load an existing CA or generate a new one.
     pub fn load_or_create() -> Result<Self> {
         let (ca_cert_pem, ca_key_pem) = load_or_create_ca()?;
-        let ca_key_pair =
-            KeyPair::from_pem(&ca_key_pem).context("failed to parse CA key")?;
+        let ca_key_pair = KeyPair::from_pem(&ca_key_pem).context("failed to parse CA key")?;
         Ok(Self {
             ca_cert_pem,
             ca_key_pair,
@@ -239,8 +238,7 @@ fn write_atomic_create_new(path: &Path, contents: &[u8], mode: u32) -> Result<()
         }
     }
 
-    let dir =
-        File::open(parent).with_context(|| format!("failed to open {}", parent.display()))?;
+    let dir = File::open(parent).with_context(|| format!("failed to open {}", parent.display()))?;
     dir.sync_all()
         .with_context(|| format!("failed to fsync {}", parent.display()))?;
 

@@ -3,10 +3,10 @@ use std::io::SeekFrom;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 use regex::Regex;
 use serde::Deserialize;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use xiaolin_core::tool::{Tool, ToolKind, ToolParameterSchema, ToolResult};
 
 const DEFAULT_LINES: usize = 50;
 const TAIL_READ_CHUNK: usize = 8192;

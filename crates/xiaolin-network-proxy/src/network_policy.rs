@@ -148,10 +148,7 @@ impl NetworkDecision {
         Self::ask_with_source(reason, NetworkDecisionSource::Decider)
     }
 
-    pub fn deny_with_source(
-        reason: impl Into<String>,
-        source: NetworkDecisionSource,
-    ) -> Self {
+    pub fn deny_with_source(reason: impl Into<String>, source: NetworkDecisionSource) -> Self {
         let reason = reason.into();
         let reason = if reason.is_empty() {
             REASON_POLICY_DENIED.to_string()
@@ -165,10 +162,7 @@ impl NetworkDecision {
         }
     }
 
-    pub fn ask_with_source(
-        reason: impl Into<String>,
-        source: NetworkDecisionSource,
-    ) -> Self {
+    pub fn ask_with_source(reason: impl Into<String>, source: NetworkDecisionSource) -> Self {
         let reason = reason.into();
         let reason = if reason.is_empty() {
             REASON_POLICY_DENIED.to_string()
@@ -367,8 +361,7 @@ mod tests {
 
     #[test]
     fn network_decision_deny_with_source() {
-        let d =
-            NetworkDecision::deny_with_source("blocked", NetworkDecisionSource::BaselinePolicy);
+        let d = NetworkDecision::deny_with_source("blocked", NetworkDecisionSource::BaselinePolicy);
         assert!(d.is_denied());
     }
 
@@ -391,10 +384,7 @@ mod tests {
 
     #[test]
     fn network_decision_json_roundtrip() {
-        let d = NetworkDecision::deny_with_source(
-            "test",
-            NetworkDecisionSource::ModeGuard,
-        );
+        let d = NetworkDecision::deny_with_source("test", NetworkDecisionSource::ModeGuard);
         let json = serde_json::to_string(&d).unwrap();
         let deserialized: NetworkDecision = serde_json::from_str(&json).unwrap();
         assert!(!deserialized.is_allowed());

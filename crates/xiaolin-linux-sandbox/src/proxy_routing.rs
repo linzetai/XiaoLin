@@ -576,11 +576,7 @@ fn spawn_host_bridge(endpoint: SocketAddr, uds_path: &Path) -> io::Result<libc::
     Ok(pid)
 }
 
-fn run_host_bridge(
-    endpoint: SocketAddr,
-    uds_path: &Path,
-    ready_fd: libc::c_int,
-) -> io::Result<()> {
+fn run_host_bridge(endpoint: SocketAddr, uds_path: &Path, ready_fd: libc::c_int) -> io::Result<()> {
     harden_bridge_process()?;
     if uds_path.exists() {
         fs::remove_file(uds_path)?;
@@ -848,8 +844,8 @@ mod tests {
 
     #[test]
     fn rewrites_proxy_url_to_local_loopback_port() {
-        let rewritten = rewrite_proxy_env_value("socks5h://127.0.0.1:8081", 43210)
-            .expect("rewritten value");
+        let rewritten =
+            rewrite_proxy_env_value("socks5h://127.0.0.1:8081", 43210).expect("rewritten value");
         assert_eq!(rewritten, "socks5h://127.0.0.1:43210");
     }
 

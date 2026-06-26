@@ -40,10 +40,7 @@ impl ReadDenyMatcher {
     ///
     /// Use this for host-side expansion where a typo should be surfaced
     /// rather than silently broadening the deny set.
-    pub fn try_new(
-        policy: &FileSystemSandboxPolicy,
-        cwd: &Path,
-    ) -> Result<Option<Self>, String> {
+    pub fn try_new(policy: &FileSystemSandboxPolicy, cwd: &Path) -> Result<Option<Self>, String> {
         Self::build(policy, cwd, InvalidDenyReadGlobBehavior::ReturnError)
     }
 
@@ -51,17 +48,13 @@ impl ReadDenyMatcher {
     ///
     /// This is a convenience constructor for callers that already have
     /// resolved paths.
-    pub fn with_denied_paths(
-        denied_paths: Vec<PathBuf>,
-        deny_globs: &[String],
-    ) -> Self {
+    pub fn with_denied_paths(denied_paths: Vec<PathBuf>, deny_globs: &[String]) -> Self {
         let denied_candidates: Vec<Vec<PathBuf>> = denied_paths
             .into_iter()
             .map(|p| normalized_and_canonical_candidates(&p))
             .collect();
 
-        let (denied_exact, denied_prefix_roots) =
-            build_denied_path_index(&denied_candidates);
+        let (denied_exact, denied_prefix_roots) = build_denied_path_index(&denied_candidates);
 
         let mut deny_glob_matchers = Vec::with_capacity(deny_globs.len());
         let mut invalid_pattern = false;
@@ -102,8 +95,7 @@ impl ReadDenyMatcher {
             .map(|path| normalized_and_canonical_candidates(path.as_path()))
             .collect();
 
-        let (denied_exact, denied_prefix_roots) =
-            build_denied_path_index(&denied_candidates);
+        let (denied_exact, denied_prefix_roots) = build_denied_path_index(&denied_candidates);
 
         let mut invalid_pattern = false;
         let mut deny_glob_matchers = Vec::new();
@@ -119,9 +111,7 @@ impl ReadDenyMatcher {
                         invalid_pattern = true;
                     }
                     InvalidDenyReadGlobBehavior::ReturnError => {
-                        return Err(format!(
-                            "invalid deny-read glob pattern `{pattern}`: {err}"
-                        ));
+                        return Err(format!("invalid deny-read glob pattern `{pattern}`: {err}"));
                     }
                 },
             }
@@ -167,15 +157,16 @@ impl ReadDenyMatcher {
     }
 }
 
-fn build_denied_path_index(
-    denied_candidates: &[Vec<PathBuf>],
-) -> (HashSet<PathBuf>, Vec<PathBuf>) {
+fn build_denied_path_index(denied_candidates: &[Vec<PathBuf>]) -> (HashSet<PathBuf>, Vec<PathBuf>) {
     let mut denied_exact = HashSet::new();
     let mut denied_prefix_roots = Vec::new();
     for candidates in denied_candidates {
         for candidate in candidates {
             denied_exact.insert(candidate.clone());
-            if !denied_prefix_roots.iter().any(|existing| existing == candidate) {
+            if !denied_prefix_roots
+                .iter()
+                .any(|existing| existing == candidate)
+            {
                 denied_prefix_roots.push(candidate.clone());
             }
         }
@@ -223,9 +214,7 @@ fn push_unique(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permission_profile::{
-        FileSystemAccessMode, FileSystemPath, FileSystemSandboxEntry,
-    };
+    use crate::permission_profile::{FileSystemAccessMode, FileSystemPath, FileSystemSandboxEntry};
     use std::path::PathBuf;
 
     fn make_deny_glob_policy(globs: Vec<&str>) -> FileSystemSandboxPolicy {
@@ -273,10 +262,7 @@ mod tests {
 
     #[test]
     fn denied_path_subtree_matches() {
-        let matcher = ReadDenyMatcher::with_denied_paths(
-            vec![PathBuf::from("/secret")],
-            &[],
-        );
+        let matcher = ReadDenyMatcher::with_denied_paths(vec![PathBuf::from("/secret")], &[]);
         assert!(matcher.is_read_denied(Path::new("/secret/file.txt")));
         assert!(matcher.is_read_denied(Path::new("/secret")));
         assert!(!matcher.is_read_denied(Path::new("/other/file.txt")));

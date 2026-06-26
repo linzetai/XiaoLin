@@ -1,10 +1,10 @@
+use arc_swap::ArcSwap;
 use axum::{
     extract::Request,
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use arc_swap::ArcSwap;
 use constant_time_eq::constant_time_eq;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -41,8 +41,7 @@ impl ApiKeyAuth {
 
     /// Hot-reload API keys and enabled flag (e.g. after `config.set security`).
     pub fn reload(&self, config: &AuthConfig) {
-        self.inner
-            .store(Arc::new(snapshot_from_config(config)));
+        self.inner.store(Arc::new(snapshot_from_config(config)));
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -118,10 +117,7 @@ impl ApiKeyAuth {
                 if let Some(token) = value.strip_prefix("Bearer ") {
                     let token = token.trim();
                     if !token.is_empty() {
-                        return Some((
-                            token.to_string(),
-                            WsKeySource::AuthorizationHeader,
-                        ));
+                        return Some((token.to_string(), WsKeySource::AuthorizationHeader));
                     }
                 }
             }

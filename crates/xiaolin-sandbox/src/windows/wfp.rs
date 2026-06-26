@@ -204,7 +204,10 @@ mod tests {
         assert_eq!(allow.unwrap().action, WfpAction::Permit);
         assert_eq!(allow.unwrap().condition, WfpCondition::Loopback);
 
-        let block = ruleset.rules.iter().find(|r| r.name == "block-all-outbound");
+        let block = ruleset
+            .rules
+            .iter()
+            .find(|r| r.name == "block-all-outbound");
         assert!(block.is_some());
         assert_eq!(block.unwrap().action, WfpAction::Block);
     }
@@ -214,11 +217,20 @@ mod tests {
         let ruleset = build_wfp_ruleset(true, Some(8080), true, None);
         assert!(ruleset.rules.len() >= 5);
 
-        let redirect_http = ruleset.rules.iter().find(|r| r.name == "redirect-http-to-proxy");
+        let redirect_http = ruleset
+            .rules
+            .iter()
+            .find(|r| r.name == "redirect-http-to-proxy");
         assert!(redirect_http.is_some());
-        assert_eq!(redirect_http.unwrap().action, WfpAction::Redirect { port: 8080 });
+        assert_eq!(
+            redirect_http.unwrap().action,
+            WfpAction::Redirect { port: 8080 }
+        );
 
-        let redirect_https = ruleset.rules.iter().find(|r| r.name == "redirect-https-to-proxy");
+        let redirect_https = ruleset
+            .rules
+            .iter()
+            .find(|r| r.name == "redirect-https-to-proxy");
         assert!(redirect_https.is_some());
 
         let allow_dns = ruleset.rules.iter().find(|r| r.name == "allow-dns");
@@ -237,7 +249,10 @@ mod tests {
         let loopback = ruleset.rules.iter().find(|r| r.name == "allow-loopback");
         assert!(loopback.is_none());
 
-        let redirect = ruleset.rules.iter().find(|r| r.name == "redirect-http-to-proxy");
+        let redirect = ruleset
+            .rules
+            .iter()
+            .find(|r| r.name == "redirect-http-to-proxy");
         assert!(redirect.is_some());
     }
 
@@ -266,10 +281,7 @@ mod tests {
 
     #[test]
     fn wfp_condition_all_compound() {
-        let cond = WfpCondition::All(vec![
-            WfpCondition::Loopback,
-            WfpCondition::RemotePort(8080),
-        ]);
+        let cond = WfpCondition::All(vec![WfpCondition::Loopback, WfpCondition::RemotePort(8080)]);
         match cond {
             WfpCondition::All(inner) => assert_eq!(inner.len(), 2),
             _ => panic!("expected All"),

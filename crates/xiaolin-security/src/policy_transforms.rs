@@ -115,9 +115,7 @@ pub fn normalize_fs_entries(
         if matches!(&entry.path, FileSystemPath::GlobPattern { .. })
             && entry.access != FileSystemAccessMode::None
         {
-            return Err(
-                "glob file system permissions only support deny-read entries".to_string(),
-            );
+            return Err("glob file system permissions only support deny-read entries".to_string());
         }
         let path = match entry.path {
             FileSystemPath::Path { path } => {
@@ -241,9 +239,7 @@ fn entries_share_scope(a: &FileSystemPath, b: &FileSystemPath) -> bool {
         (FileSystemPath::Path { path: pa }, FileSystemPath::Path { path: pb }) => {
             pa.as_path().starts_with(pb.as_path()) || pb.as_path().starts_with(pa.as_path())
         }
-        (FileSystemPath::Special { value: va }, FileSystemPath::Special { value: vb }) => {
-            va == vb
-        }
+        (FileSystemPath::Special { value: va }, FileSystemPath::Special { value: vb }) => va == vb,
         _ => false,
     }
 }
@@ -324,7 +320,11 @@ pub fn merge_permission_profiles(
                 network,
                 file_system,
             };
-            if result.is_empty() { None } else { Some(result) }
+            if result.is_empty() {
+                None
+            } else {
+                Some(result)
+            }
         }
     }
 }
@@ -407,7 +407,11 @@ pub fn intersect_permission_profiles(
                 network,
                 file_system,
             };
-            if result.is_empty() { None } else { Some(result) }
+            if result.is_empty() {
+                None
+            } else {
+                Some(result)
+            }
         }
     }
 }
@@ -428,7 +432,9 @@ pub fn effective_permission_profile(
 
     // Merge file system
     if let Some(ref fs_perms) = additional.file_system {
-        if matches!(fs_policy.kind, FileSystemSandboxKind::Restricted) && !fs_perms.entries.is_empty() {
+        if matches!(fs_policy.kind, FileSystemSandboxKind::Restricted)
+            && !fs_perms.entries.is_empty()
+        {
             let mut entries = fs_policy.entries;
             for entry in &fs_perms.entries {
                 if !entries.contains(entry) {
@@ -520,8 +526,7 @@ mod tests {
             },
             access: FileSystemAccessMode::Write,
         }]);
-        let effective =
-            effective_file_system_sandbox_policy(Some(&base), Some(&additional));
+        let effective = effective_file_system_sandbox_policy(Some(&base), Some(&additional));
         assert_eq!(effective.kind, FileSystemSandboxKind::Restricted);
         assert!(effective.entries.len() > base.entries.len());
     }
@@ -542,8 +547,7 @@ mod tests {
             },
             access: FileSystemAccessMode::Write,
         }]);
-        let effective =
-            effective_file_system_sandbox_policy(Some(&base), Some(&additional));
+        let effective = effective_file_system_sandbox_policy(Some(&base), Some(&additional));
         assert_eq!(effective.kind, FileSystemSandboxKind::Unrestricted);
     }
 
@@ -568,13 +572,19 @@ mod tests {
     #[test]
     fn should_require_sandbox_unrestricted_returns_false() {
         let fs = FileSystemSandboxPolicy::unrestricted();
-        assert!(!should_require_platform_sandbox(&fs, NetworkSandboxPolicy::Restricted));
+        assert!(!should_require_platform_sandbox(
+            &fs,
+            NetworkSandboxPolicy::Restricted
+        ));
     }
 
     #[test]
     fn should_require_sandbox_external_returns_false() {
         let fs = FileSystemSandboxPolicy::external_sandbox();
-        assert!(!should_require_platform_sandbox(&fs, NetworkSandboxPolicy::Enabled));
+        assert!(!should_require_platform_sandbox(
+            &fs,
+            NetworkSandboxPolicy::Enabled
+        ));
     }
 
     #[test]
@@ -585,7 +595,10 @@ mod tests {
             },
             access: FileSystemAccessMode::Read,
         }]);
-        assert!(should_require_platform_sandbox(&fs, NetworkSandboxPolicy::Enabled));
+        assert!(should_require_platform_sandbox(
+            &fs,
+            NetworkSandboxPolicy::Enabled
+        ));
     }
 
     #[test]
@@ -596,7 +609,10 @@ mod tests {
             },
             access: FileSystemAccessMode::Write,
         }]);
-        assert!(should_require_platform_sandbox(&fs, NetworkSandboxPolicy::Restricted));
+        assert!(should_require_platform_sandbox(
+            &fs,
+            NetworkSandboxPolicy::Restricted
+        ));
     }
 
     #[test]
@@ -607,7 +623,10 @@ mod tests {
             },
             access: FileSystemAccessMode::Write,
         }]);
-        assert!(!should_require_platform_sandbox(&fs, NetworkSandboxPolicy::Enabled));
+        assert!(!should_require_platform_sandbox(
+            &fs,
+            NetworkSandboxPolicy::Enabled
+        ));
     }
 
     #[test]
@@ -626,7 +645,10 @@ mod tests {
                 access: FileSystemAccessMode::None,
             },
         ]);
-        assert!(should_require_platform_sandbox(&fs, NetworkSandboxPolicy::Enabled));
+        assert!(should_require_platform_sandbox(
+            &fs,
+            NetworkSandboxPolicy::Enabled
+        ));
     }
 
     // --- normalize / merge / intersect tests ---
@@ -739,8 +761,14 @@ mod tests {
             access: FileSystemAccessMode::Write,
         }]);
         let result = intersect_fs_sandbox_policies(&requested, &granted, Path::new("/"));
-        assert!(result.entries.iter().any(|e| e.access == FileSystemAccessMode::None));
-        assert!(result.entries.iter().any(|e| e.access == FileSystemAccessMode::Write));
+        assert!(result
+            .entries
+            .iter()
+            .any(|e| e.access == FileSystemAccessMode::None));
+        assert!(result
+            .entries
+            .iter()
+            .any(|e| e.access == FileSystemAccessMode::Write));
     }
 
     #[test]

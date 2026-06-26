@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use xiaolin_core::tool::{Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult, no_retry_recovery_hint};
 use serde::Deserialize;
+use xiaolin_core::tool::{
+    no_retry_recovery_hint, Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult,
+};
 
+use crate::lsp_manager::LspSessionManager;
 use xiaolin_tools_fs::filesystem::{ensure_within_workspace, ReadFileTool, SearchInFilesTool};
 use xiaolin_tools_fs::snippet::line_snippet;
-use crate::lsp_manager::LspSessionManager;
 
 /// Default context lines (each side) attached to a code-location snippet.
 const DEFAULT_SNIPPET_CONTEXT: usize = 5;
@@ -54,8 +56,7 @@ impl SnippetLoader {
         let canon = std::fs::canonicalize(path).ok();
 
         // Zero-IO path: location is within the already-loaded input file.
-        if let (Some(content), Some(ic), Some(c)) =
-            (&self.input_content, &self.input_canon, &canon)
+        if let (Some(content), Some(ic), Some(c)) = (&self.input_content, &self.input_canon, &canon)
         {
             if ic == c {
                 return line_snippet(content, line, context);
@@ -250,7 +251,11 @@ fn code_intel_lsp_unavailable(tool: &str, detail: impl std::fmt::Display) -> Too
     )
 }
 
-fn code_intel_invalid_params(tool: &str, message: impl std::fmt::Display, hint: impl Into<String>) -> ToolResult {
+fn code_intel_invalid_params(
+    tool: &str,
+    message: impl std::fmt::Display,
+    hint: impl Into<String>,
+) -> ToolResult {
     ToolResult::err_with_recovery(
         ToolErrorType::InvalidToolParams,
         format!("{tool}: {message}"),
@@ -258,7 +263,11 @@ fn code_intel_invalid_params(tool: &str, message: impl std::fmt::Display, hint: 
     )
 }
 
-fn code_intel_execution_failed(tool: &str, message: impl std::fmt::Display, hint: impl Into<String>) -> ToolResult {
+fn code_intel_execution_failed(
+    tool: &str,
+    message: impl std::fmt::Display,
+    hint: impl Into<String>,
+) -> ToolResult {
     ToolResult::err_with_recovery(
         ToolErrorType::LspRequestFailed,
         format!("{tool}: {message}"),
@@ -496,34 +505,33 @@ impl Tool for GoToDefinitionTool {
             Err(e) => return code_intel_invalid_json("go_to_definition", e),
         };
         let file_path = args.path.clone();
-        let symbol = if let Some(s) = args.symbol {
-            s
-        } else {
-            let read_args = serde_json::json!({
-                "path": file_path.clone(),
-                "offset": args.line as i64,
-                "limit": 1
-            })
-            .to_string();
-            let line_result = ReadFileTool.execute(&read_args).await;
-            if !line_result.success {
-                return line_result;
-            }
-            let line = parse_read_line(&line_result.output);
-            match extract_token_at_column(&line, args.column) {
-                Some(tok) => tok,
-                None => {
-                    return code_intel_invalid_params(
+        let symbol =
+            if let Some(s) = args.symbol {
+                s
+            } else {
+                let read_args = serde_json::json!({
+                    "path": file_path.clone(),
+                    "offset": args.line as i64,
+                    "limit": 1
+                })
+                .to_string();
+                let line_result = ReadFileTool.execute(&read_args).await;
+                if !line_result.success {
+                    return line_result;
+                }
+                let line = parse_read_line(&line_result.output);
+                match extract_token_at_column(&line, args.column) {
+                    Some(tok) => tok,
+                    None => return code_intel_invalid_params(
                         "go_to_definition",
                         format!(
                             "could not extract symbol at line {}, column {}",
                             args.line, args.column
                         ),
                         "Pass an explicit symbol parameter or place the cursor on an identifier.",
-                    )
+                    ),
                 }
-            }
-        };
+            };
 
         // Try local symbol index first for fast definition lookup.
         let index_results = crate::symbol_index::SymbolIndex::global().lookup(&symbol);
@@ -569,19 +577,14 @@ impl Tool for GoToDefinitionTool {
                 {
                     if !locs.is_empty() {
                         let lsp_stats = LspSessionManager::global().stats_snapshot();
-                        let mut loader = SnippetLoader::new(
-                            Some(&file_path),
-                            Some(full_file.output.clone()),
-                        );
+                        let mut loader =
+                            SnippetLoader::new(Some(&file_path), Some(full_file.output.clone()));
                         let defs = locs
                             .into_iter()
                             .enumerate()
                             .map(|(idx, d)| {
-                                let snippet = loader.snippet(
-                                    &d.path,
-                                    d.line,
-                                    snippet_context_for_index(idx),
-                                );
+                                let snippet =
+                                    loader.snippet(&d.path, d.line, snippet_context_for_index(idx));
                                 serde_json::json!({
                                     "name": symbol,
                                     "kind": "symbol",
@@ -694,34 +697,33 @@ impl Tool for FindReferencesTool {
         };
         let file_path = args.path.clone();
 
-        let symbol = if let Some(s) = args.symbol {
-            s
-        } else {
-            let read_args = serde_json::json!({
-                "path": file_path.clone(),
-                "offset": args.line as i64,
-                "limit": 1
-            })
-            .to_string();
-            let line_result = ReadFileTool.execute(&read_args).await;
-            if !line_result.success {
-                return line_result;
-            }
-            let line = parse_read_line(&line_result.output);
-            match extract_token_at_column(&line, args.column) {
-                Some(tok) => tok,
-                None => {
-                    return code_intel_invalid_params(
+        let symbol =
+            if let Some(s) = args.symbol {
+                s
+            } else {
+                let read_args = serde_json::json!({
+                    "path": file_path.clone(),
+                    "offset": args.line as i64,
+                    "limit": 1
+                })
+                .to_string();
+                let line_result = ReadFileTool.execute(&read_args).await;
+                if !line_result.success {
+                    return line_result;
+                }
+                let line = parse_read_line(&line_result.output);
+                match extract_token_at_column(&line, args.column) {
+                    Some(tok) => tok,
+                    None => return code_intel_invalid_params(
                         "find_references",
                         format!(
                             "could not extract symbol at line {}, column {}",
                             args.line, args.column
                         ),
                         "Pass an explicit symbol parameter or place the cursor on an identifier.",
-                    )
+                    ),
                 }
-            }
-        };
+            };
 
         let limit = reference_result_limit(args.limit);
 
@@ -775,20 +777,15 @@ impl Tool for FindReferencesTool {
                 {
                     if !refs.is_empty() {
                         let lsp_stats = LspSessionManager::global().stats_snapshot();
-                        let mut loader = SnippetLoader::new(
-                            Some(&file_path),
-                            Some(full_file.output.clone()),
-                        );
+                        let mut loader =
+                            SnippetLoader::new(Some(&file_path), Some(full_file.output.clone()));
                         let arr = refs
                             .into_iter()
                             .take(limit)
                             .enumerate()
                             .map(|(idx, r)| {
-                                let snippet = loader.snippet(
-                                    &r.path,
-                                    r.line,
-                                    snippet_context_for_index(idx),
-                                );
+                                let snippet =
+                                    loader.snippet(&r.path, r.line, snippet_context_for_index(idx));
                                 serde_json::json!({
                                     "path": r.path,
                                     "line": r.line,
@@ -1635,8 +1632,7 @@ For cross-file jumps after locating a section, follow with `lsp` goToDefinition.
         };
 
         let max_lines = args.max_chunk_lines.unwrap_or(80).clamp(10, 500);
-        let chunks =
-            xiaolin_treesitter::chunk_file(&parsed.tree, &parsed.source, &lang, max_lines);
+        let chunks = xiaolin_treesitter::chunk_file(&parsed.tree, &parsed.source, &lang, max_lines);
 
         let json_chunks: Vec<serde_json::Value> = chunks
             .iter()
@@ -1731,7 +1727,10 @@ mod tests {
         let out = WorkspaceSymbolsTool.execute(&args).await;
         assert!(out.success, "should succeed: {}", out.output);
         let body: serde_json::Value = serde_json::from_str(&out.output).expect("json");
-        let symbols = body.get("symbols").and_then(|v| v.as_array()).expect("symbols");
+        let symbols = body
+            .get("symbols")
+            .and_then(|v| v.as_array())
+            .expect("symbols");
         assert!(!symbols.is_empty());
         // Every symbol object exposes a `snippet` field (structure parity).
         for s in symbols {
@@ -1762,8 +1761,14 @@ mod tests {
     fn lsp_prompt_mentions_snippet_precision_and_anti_patterns() {
         let tool = UnifiedLspTool;
         let prompt = tool.prompt();
-        assert!(prompt.contains("snippet"), "lsp prompt should mention snippet");
-        assert!(prompt.contains("Anti-Patterns"), "lsp prompt should include Anti-Patterns");
+        assert!(
+            prompt.contains("snippet"),
+            "lsp prompt should mention snippet"
+        );
+        assert!(
+            prompt.contains("Anti-Patterns"),
+            "lsp prompt should include Anti-Patterns"
+        );
         assert!(
             prompt.contains("first 50"),
             "findReferences snippet policy should mention first 50"
@@ -1782,7 +1787,10 @@ mod tests {
     fn file_outline_prompt_mentions_read_file() {
         let tool = FileOutlineTool;
         let prompt = tool.prompt();
-        assert!(prompt.contains("read_file"), "file_outline prompt should mention read_file");
+        assert!(
+            prompt.contains("read_file"),
+            "file_outline prompt should mention read_file"
+        );
     }
 
     #[test]

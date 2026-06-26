@@ -1,10 +1,10 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use tracing::info;
 use xiaolin_security::{FileSystemSandboxPolicy, NetworkSandboxPolicy};
 
-use crate::bwrap::{BwrapNetworkMode, BwrapOptions, create_bwrap_command_args};
+use crate::bwrap::{create_bwrap_command_args, BwrapNetworkMode, BwrapOptions};
 
 /// Parsed CLI matching `create_linux_sandbox_command_args` in xiaolin-sandbox.
 #[derive(Debug)]
@@ -115,9 +115,7 @@ pub fn run_main() -> Result<()> {
     crate::bwrap::exec_with_bwrap(bwrap_args, None)
 }
 
-fn build_legacy_landlock_setup(
-    parsed: &ParsedCli,
-) -> Result<xiaolin_sandbox::LinuxSandboxSetup> {
+fn build_legacy_landlock_setup(parsed: &ParsedCli) -> Result<xiaolin_sandbox::LinuxSandboxSetup> {
     let writable_roots: Vec<PathBuf> = parsed
         .fs_policy
         .get_writable_roots_with_cwd(&parsed.sandbox_policy_cwd)
@@ -184,12 +182,7 @@ fn parse_args(args: &[String]) -> Result<ParsedCli> {
     }
 
     if let Some(legacy_json) = legacy_policy_json {
-        return parse_legacy_policy(
-            legacy_json,
-            sandbox_policy_cwd,
-            command_cwd,
-            child_args,
-        );
+        return parse_legacy_policy(legacy_json, sandbox_policy_cwd, command_cwd, child_args);
     }
 
     let fs_policy: FileSystemSandboxPolicy = match fs_policy_json {
@@ -245,8 +238,8 @@ fn parse_legacy_policy(
         FileSystemSandboxPolicy::workspace_write(&writable_abs, false, false)
     });
 
-    let allow_network_for_proxy = policy.bwrap_network_mode.as_deref() == Some("proxy_only")
-        || policy.proxy_port.is_some();
+    let allow_network_for_proxy =
+        policy.bwrap_network_mode.as_deref() == Some("proxy_only") || policy.proxy_port.is_some();
     let use_legacy_landlock = policy.use_landlock && !policy.use_bwrap;
     let net_policy = if policy.network_namespace && !allow_network_for_proxy {
         NetworkSandboxPolicy::Restricted
@@ -288,8 +281,8 @@ fn set_no_new_privs() -> Result<()> {
 }
 
 fn fork_exec_wait_in_cwd(args: &[String], cwd: &Path) -> Result<()> {
-    use nix::sys::wait::{WaitStatus, waitpid};
-    use nix::unistd::{ForkResult, fork};
+    use nix::sys::wait::{waitpid, WaitStatus};
+    use nix::unistd::{fork, ForkResult};
 
     let child_pid = match unsafe { fork() } {
         Ok(ForkResult::Child) => {
@@ -319,7 +312,7 @@ fn fork_exec_wait_in_cwd(args: &[String], cwd: &Path) -> Result<()> {
 }
 
 fn install_signal_forwarder(child: nix::unistd::Pid) {
-    use nix::sys::signal::{Signal, kill};
+    use nix::sys::signal::{kill, Signal};
 
     let child_pid = child;
     let _ = ctrlc::set_handler(move || {
@@ -359,7 +352,10 @@ mod tests {
             "/bin/ls".into(),
         ];
         let parsed = parse_args(&args).unwrap();
-        assert_eq!(parsed.sandbox_policy_cwd, PathBuf::from("/home/user/project"));
+        assert_eq!(
+            parsed.sandbox_policy_cwd,
+            PathBuf::from("/home/user/project")
+        );
         assert_eq!(parsed.command_cwd, PathBuf::from("/home/user"));
         assert!(parsed.net_policy.is_enabled());
         assert_eq!(parsed.child_args, vec!["/bin/ls"]);
@@ -382,10 +378,7 @@ mod tests {
         let parsed = parse_args(&args).unwrap();
         assert!(parsed.allow_network_for_proxy);
         assert_eq!(parsed.command_cwd, PathBuf::from("/tmp"));
-        assert_eq!(
-            parsed.child_args,
-            vec!["bash", "-c", "echo hi"]
-        );
+        assert_eq!(parsed.child_args, vec!["bash", "-c", "echo hi"]);
     }
 
     #[test]

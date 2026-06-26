@@ -78,14 +78,8 @@ mod tests {
 
     #[test]
     fn parse_loopback_port_from_localhost() {
-        assert_eq!(
-            parse_loopback_port("http://127.0.0.1:8080"),
-            Some(8080)
-        );
-        assert_eq!(
-            parse_loopback_port("socks5://localhost:1080"),
-            Some(1080)
-        );
+        assert_eq!(parse_loopback_port("http://127.0.0.1:8080"), Some(8080));
+        assert_eq!(parse_loopback_port("socks5://localhost:1080"), Some(1080));
     }
 
     #[test]

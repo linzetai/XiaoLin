@@ -8,7 +8,6 @@
 
 use serde::{Deserialize, Serialize};
 
-
 /// Privilege to retain in restricted tokens (traverse checking bypass).
 pub const SE_CHANGE_NOTIFY_NAME: &str = "SeChangeNotifyPrivilege";
 

@@ -222,9 +222,7 @@ impl SandboxManager {
         if preference == SandboxPreference::Auto {
             let detected = Self::detect_platform();
             if detected == SandboxType::Noop {
-                tracing::warn!(
-                    "no real sandbox backend available; falling back to noop sandbox"
-                );
+                tracing::warn!("no real sandbox backend available; falling back to noop sandbox");
                 if requires_sandbox {
                     return Err(SandboxSelectionError {
                         message: "sandbox required by policy but no backend is available on this platform"
@@ -289,21 +287,17 @@ impl SandboxManager {
         request: &SandboxTransformRequest<'_>,
     ) -> Result<SandboxedCommand, SandboxTransformError> {
         let effective_fs = match request.additional_fs_policy {
-            Some(additional) => {
-                policy_transforms::effective_file_system_sandbox_policy(
-                    Some(request.fs_policy),
-                    Some(additional),
-                )
-            }
+            Some(additional) => policy_transforms::effective_file_system_sandbox_policy(
+                Some(request.fs_policy),
+                Some(additional),
+            ),
             None => request.fs_policy.clone(),
         };
         let effective_net = match request.additional_net_policy {
-            Some(additional) => {
-                policy_transforms::effective_network_sandbox_policy(
-                    Some(request.net_policy),
-                    Some(additional),
-                )
-            }
+            Some(additional) => policy_transforms::effective_network_sandbox_policy(
+                Some(request.net_policy),
+                Some(additional),
+            ),
             None => request.net_policy,
         };
 
@@ -318,8 +312,7 @@ impl SandboxManager {
         #[cfg(target_os = "linux")]
         {
             let cwd = request.sandbox_policy_cwd.unwrap_or(Path::new("/"));
-            let has_deny_read =
-                landlock::policy_has_deny_read_restrictions(&effective_fs, cwd);
+            let has_deny_read = landlock::policy_has_deny_read_restrictions(&effective_fs, cwd);
 
             if has_deny_read && request.use_legacy_landlock {
                 tracing::warn!(
@@ -347,8 +340,8 @@ impl SandboxManager {
                 || (has_deny_read && resolved_exe.is_some());
 
             if prefer_external {
-                let exe = resolved_exe
-                    .ok_or(SandboxTransformError::MissingLinuxSandboxExecutable)?;
+                let exe =
+                    resolved_exe.ok_or(SandboxTransformError::MissingLinuxSandboxExecutable)?;
                 return landlock::transform_external(
                     request.command,
                     request.shell,

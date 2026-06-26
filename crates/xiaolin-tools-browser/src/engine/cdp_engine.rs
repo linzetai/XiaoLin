@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use xiaolin_core::tool::ToolImage;
 use xiaolin_tools_network::{strip_html_tags, truncate_text};
 
-use crate::actions;
 use super::{BrowserEngine, EngineActionResult};
+use crate::actions;
 
 const BROWSER_LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -21,7 +21,10 @@ struct CdpActionResult {
 
 impl CdpActionResult {
     fn text(s: String) -> Self {
-        Self { text: s, images: vec![] }
+        Self {
+            text: s,
+            images: vec![],
+        }
     }
 }
 
@@ -36,12 +39,16 @@ pub struct CdpEngine {
 }
 
 impl Default for CdpEngine {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CdpEngine {
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(None)) }
+        Self {
+            inner: Arc::new(Mutex::new(None)),
+        }
     }
 
     pub fn shutdown_sync(&self) {
@@ -795,7 +802,8 @@ impl CdpEngine {
                         .lock()
                         .map_err(|e| format!("browser: re-lock after reconnect failed: {e}"))?;
                     if let Some(state) = guard.as_mut() {
-                        return CdpEngine::dispatch_action(state, action, args).map(CdpActionResult::text);
+                        return CdpEngine::dispatch_action(state, action, args)
+                            .map(CdpActionResult::text);
                     }
                 }
             }
@@ -940,7 +948,8 @@ impl CdpEngine {
                     "title": title,
                     "url": url,
                     "snapshot": snapshot,
-                }).to_string();
+                })
+                .to_string();
                 if let Some(path) = args.get("filePath").and_then(|v| v.as_str()) {
                     let validated = actions::validate_output_path(path)?;
                     std::fs::write(&validated, &output).map_err(|e| {
@@ -1714,7 +1723,9 @@ impl CdpEngine {
 
 #[async_trait]
 impl BrowserEngine for CdpEngine {
-    fn engine_type(&self) -> &str { "cdp" }
+    fn engine_type(&self) -> &str {
+        "cdp"
+    }
 
     fn shutdown_sync(&self) {
         CdpEngine::shutdown_sync(self);

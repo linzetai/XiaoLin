@@ -100,10 +100,7 @@ pub fn discover_linux_sandbox_exe() -> Option<PathBuf> {
 
 /// Whether the filesystem policy contains deny-read entries that legacy
 /// in-process Landlock cannot enforce (Landlock is allow-list only).
-pub fn policy_has_deny_read_restrictions(
-    fs_policy: &FileSystemSandboxPolicy,
-    cwd: &Path,
-) -> bool {
+pub fn policy_has_deny_read_restrictions(fs_policy: &FileSystemSandboxPolicy, cwd: &Path) -> bool {
     !fs_policy.get_unreadable_roots_with_cwd(cwd).is_empty()
         || !fs_policy.get_unreadable_globs_with_cwd(cwd).is_empty()
 }
@@ -140,11 +137,7 @@ pub fn transform_external(
 ) -> Result<SandboxedCommand, SandboxTransformError> {
     let allow_network = !net_policy.is_enabled() || enforce_managed_network;
     let sandbox_args = create_linux_sandbox_command_args(
-        vec![
-            shell.to_string(),
-            "-c".to_string(),
-            command.to_string(),
-        ],
+        vec![shell.to_string(), "-c".to_string(), command.to_string()],
         sandbox_policy_cwd,
         fs_policy,
         net_policy,
@@ -515,9 +508,7 @@ pub fn create_linux_sandbox_command_args(
         )
     })?;
     let cmd_cwd = command_cwd.to_str().ok_or_else(|| {
-        SandboxTransformError::PolicySerializationFailed(
-            "command cwd must be valid UTF-8".into(),
-        )
+        SandboxTransformError::PolicySerializationFailed("command cwd must be valid UTF-8".into())
     })?;
 
     let mut args: Vec<String> = vec![
@@ -584,7 +575,13 @@ mod tests {
 
     #[test]
     fn transform_unrestricted_has_no_sandbox_setup() {
-        let cmd = transform("echo hello", "bash", &unrestricted_fs(), NetworkSandboxPolicy::Enabled, &test_cwd());
+        let cmd = transform(
+            "echo hello",
+            "bash",
+            &unrestricted_fs(),
+            NetworkSandboxPolicy::Enabled,
+            &test_cwd(),
+        );
         assert_eq!(cmd.program, "bash");
         assert_eq!(cmd.sandbox_type, SandboxType::Landlock);
         assert_eq!(cmd.args, vec!["-c", "echo hello"]);
@@ -593,7 +590,13 @@ mod tests {
 
     #[test]
     fn transform_restricted_has_sandbox_setup() {
-        let cmd = transform("ls", "bash", &development_fs(), NetworkSandboxPolicy::Enabled, &test_cwd());
+        let cmd = transform(
+            "ls",
+            "bash",
+            &development_fs(),
+            NetworkSandboxPolicy::Enabled,
+            &test_cwd(),
+        );
         assert!(cmd.env.contains_key("XIAOLIN_SANDBOXED"));
         assert!(cmd.env_remove.contains(&"LD_PRELOAD".to_string()));
 
@@ -620,7 +623,13 @@ mod tests {
     #[test]
     fn transform_locked_down_has_full_setup() {
         use crate::NetworkSeccompMode;
-        let cmd = transform("ls", "bash", &locked_down_fs(), NetworkSandboxPolicy::Restricted, &test_cwd());
+        let cmd = transform(
+            "ls",
+            "bash",
+            &locked_down_fs(),
+            NetworkSandboxPolicy::Restricted,
+            &test_cwd(),
+        );
         let setup = cmd.linux_sandbox.expect("should have sandbox setup");
         assert_eq!(setup.writable_roots, Some(vec![]));
         assert_eq!(setup.network_seccomp, Some(NetworkSeccompMode::Restricted));

@@ -109,10 +109,7 @@ impl FileStateCache {
             None => return StaleCheckResult::NeverRead,
         };
 
-        let current_mtime = match tokio::fs::metadata(path)
-            .await
-            .and_then(|m| m.modified())
-        {
+        let current_mtime = match tokio::fs::metadata(path).await.and_then(|m| m.modified()) {
             Ok(t) => t,
             Err(_) => return StaleCheckResult::NeverRead,
         };
@@ -229,7 +226,11 @@ impl FileStateCache {
 
 fn compute_hash(content: &str) -> u64 {
     let hash = blake3::hash(content.as_bytes());
-    u64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("blake3 hash is 32 bytes"))
+    u64::from_le_bytes(
+        hash.as_bytes()[..8]
+            .try_into()
+            .expect("blake3 hash is 32 bytes"),
+    )
 }
 
 #[cfg(test)]

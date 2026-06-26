@@ -130,11 +130,7 @@ pub trait BrowserEngine: Send + Sync {
 
     // ── Interaction ───────────────────────────────────────────────────────
 
-    async fn click(
-        &self,
-        selector: &str,
-        uid: Option<&str>,
-    ) -> Result<EngineActionResult, String> {
+    async fn click(&self, selector: &str, uid: Option<&str>) -> Result<EngineActionResult, String> {
         let mut args = serde_json::json!({});
         if let Some(u) = uid {
             args["uid"] = serde_json::json!(u);
@@ -187,11 +183,13 @@ pub trait BrowserEngine: Send + Sync {
     }
 
     async fn get_content(&self) -> Result<EngineActionResult, String> {
-        self.execute_action("get_content", &serde_json::json!({})).await
+        self.execute_action("get_content", &serde_json::json!({}))
+            .await
     }
 
     async fn screenshot(&self) -> Result<EngineActionResult, String> {
-        self.execute_action("screenshot", &serde_json::json!({})).await
+        self.execute_action("screenshot", &serde_json::json!({}))
+            .await
     }
 
     async fn evaluate(&self, js: &str) -> Result<EngineActionResult, String> {
@@ -214,7 +212,8 @@ pub trait BrowserEngine: Send + Sync {
     // ── Page management ───────────────────────────────────────────────────
 
     async fn list_pages(&self) -> Result<EngineActionResult, String> {
-        self.execute_action("list_pages", &serde_json::json!({})).await
+        self.execute_action("list_pages", &serde_json::json!({}))
+            .await
     }
 
     async fn select_page(&self, page_id: &str) -> Result<EngineActionResult, String> {

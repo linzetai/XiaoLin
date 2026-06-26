@@ -8,11 +8,11 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use chardetng::EncodingDetector;
 use encoding_rs::Encoding;
-use xiaolin_core::agent_config::FileAccessMode;
-use xiaolin_core::tool::{Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult};
 use regex::RegexBuilder;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
+use xiaolin_core::agent_config::FileAccessMode;
+use xiaolin_core::tool::{Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult};
 
 use crate::file_state_cache::{FileStateCache, StaleCheckResult};
 
@@ -1742,9 +1742,14 @@ fn suggest_path_under_cwd(requested_path: &Path) -> Option<PathBuf> {
 
 /// Search for files with the same basename under `root`, up to `max_depth` levels deep.
 /// Returns at most `max_results` absolute paths, sorted by depth (shallowest first).
-fn find_similar_files(basename: &str, root: &Path, max_depth: usize, max_results: usize) -> Vec<PathBuf> {
-    use std::collections::BinaryHeap;
+fn find_similar_files(
+    basename: &str,
+    root: &Path,
+    max_depth: usize,
+    max_results: usize,
+) -> Vec<PathBuf> {
     use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
 
     if basename.is_empty() {
         return Vec::new();
@@ -2381,10 +2386,7 @@ it provides structured output with line numbers, handles encoding detection, and
                 } else {
                     ToolErrorType::ReadContentFailure
                 };
-                return ToolResult::typed_err(
-                    err_type,
-                    create_user_friendly_error(err_type, path),
-                );
+                return ToolResult::typed_err(err_type, create_user_friendly_error(err_type, path));
             }
         };
         if meta.len() > MAX_READ_FILE_BYTES {
@@ -2412,7 +2414,10 @@ it provides structured output with line numbers, handles encoding detection, and
                     if let Some(s) = cwd_suggestion {
                         suggestions.push(s);
                     }
-                    let basename = Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    let basename = Path::new(path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("");
                     if let Some(root) = get_effective_work_dir() {
                         for s in find_similar_files(basename, &root, 3, 3) {
                             if !suggestions.contains(&s) {
@@ -3257,7 +3262,10 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                 ToolErrorType::EditNoChange,
                 EditErrorCode::NoChange.format_error(
                     &args.file_path,
-                    &format!("old_string and new_string are identical in '{}'.", args.file_path),
+                    &format!(
+                        "old_string and new_string are identical in '{}'.",
+                        args.file_path
+                    ),
                 ),
             );
         }
@@ -3325,7 +3333,10 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                     if let Some(s) = cwd_suggestion {
                         suggestions.push(s);
                     }
-                    let basename = Path::new(&args.file_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    let basename = Path::new(&args.file_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("");
                     if let Some(root) = get_effective_work_dir() {
                         for s in find_similar_files(basename, &root, 3, 3) {
                             if !suggestions.contains(&s) {
@@ -3360,33 +3371,38 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
             maybe_augment_old_string_for_deletion(&normalized, &old_normalized, &new_normalized);
 
         let (updated_normalized, replaced, fuzzy_used) = match args.match_mode {
-            MatchMode::Contains => match try_contains_match(&normalized, &old_normalized) {
-                FuzzyMatchResult::UniqueMatch { start, end } => {
-                    let mut result = String::with_capacity(normalized.len());
-                    result.push_str(&normalized[..start]);
-                    result.push_str(&new_normalized);
-                    result.push_str(&normalized[end..]);
-                    (result, 1usize, true)
-                }
-                FuzzyMatchResult::NoMatch => {
-                    return ToolResult::typed_err(
+            MatchMode::Contains => {
+                match try_contains_match(&normalized, &old_normalized) {
+                    FuzzyMatchResult::UniqueMatch { start, end } => {
+                        let mut result = String::with_capacity(normalized.len());
+                        result.push_str(&normalized[..start]);
+                        result.push_str(&new_normalized);
+                        result.push_str(&normalized[end..]);
+                        (result, 1usize, true)
+                    }
+                    FuzzyMatchResult::NoMatch => {
+                        return ToolResult::typed_err(
                         ToolErrorType::EditNoOccurrenceFound,
                         EditErrorCode::NotMatched.format_error(
                             &args.file_path,
                             &format!("Could not find old_string as a substring (contains mode) in '{}'.", args.file_path),
                         ),
                     );
+                    }
+                    FuzzyMatchResult::MultipleMatches(n) => {
+                        return ToolResult::typed_err(
+                            ToolErrorType::EditMultipleOccurrences,
+                            EditErrorCode::Ambiguous.format_error(
+                                &args.file_path,
+                                &format!(
+                                    "Found {n} substring matches (contains mode) in '{}'.",
+                                    args.file_path
+                                ),
+                            ),
+                        );
+                    }
                 }
-                FuzzyMatchResult::MultipleMatches(n) => {
-                    return ToolResult::typed_err(
-                        ToolErrorType::EditMultipleOccurrences,
-                        EditErrorCode::Ambiguous.format_error(
-                            &args.file_path,
-                            &format!("Found {n} substring matches (contains mode) in '{}'.", args.file_path),
-                        ),
-                    );
-                }
-            },
+            }
             MatchMode::Fuzzy => match try_fuzzy_match(&normalized, &old_normalized) {
                 FuzzyMatchResult::UniqueMatch { start, end } => {
                     let mut result = String::with_capacity(normalized.len());
@@ -3400,7 +3416,10 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                         ToolErrorType::EditNoOccurrenceFound,
                         EditErrorCode::NotMatched.format_error(
                             &args.file_path,
-                            &format!("Could not find old_string with fuzzy matching in '{}'.", args.file_path),
+                            &format!(
+                                "Could not find old_string with fuzzy matching in '{}'.",
+                                args.file_path
+                            ),
                         ),
                     );
                 }
@@ -3437,7 +3456,10 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                             ToolErrorType::EditMultipleOccurrences,
                             EditErrorCode::Ambiguous.format_error(
                                 &args.file_path,
-                                &format!("Expected {expected} matches but found {match_count} in '{}'.", args.file_path),
+                                &format!(
+                                    "Expected {expected} matches but found {match_count} in '{}'.",
+                                    args.file_path
+                                ),
                             ),
                         );
                     }
@@ -3561,7 +3583,11 @@ it provides atomic writes, encoding preservation, fuzzy matching, and stale-file
                     && args.expected_replacements.is_none()
                     && match_count > 1
                 {
-                    let kind = if unicode_match { "Unicode-normalized" } else { "exact" };
+                    let kind = if unicode_match {
+                        "Unicode-normalized"
+                    } else {
+                        "exact"
+                    };
                     return ToolResult::typed_err(
                         ToolErrorType::EditMultipleOccurrences,
                         EditErrorCode::Ambiguous.format_error(
@@ -4945,7 +4971,8 @@ Examples:\n\
         let truncated = entries.len() > max_results;
         entries.truncate(max_results);
 
-        let effective_root = workspace_root().unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        let effective_root =
+            workspace_root().unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
         let file_list: Vec<String> = entries
             .iter()
             .map(|(p, _)| {
@@ -5077,7 +5104,14 @@ impl Tool for MultiEditTool {
             return ToolResult::err("multi_edit requires at least one file entry.".to_string());
         }
 
-        let mut staged: Vec<(PathBuf, String, Vec<u8>, Vec<serde_json::Value>, usize, usize)> = Vec::new();
+        let mut staged: Vec<(
+            PathBuf,
+            String,
+            Vec<u8>,
+            Vec<serde_json::Value>,
+            usize,
+            usize,
+        )> = Vec::new();
 
         for (file_idx, entry) in args.edits.iter().enumerate() {
             let validated = match ensure_within_workspace(Path::new(&entry.file_path), true) {
@@ -5151,7 +5185,14 @@ impl Tool for MultiEditTool {
             let (lines_added, lines_removed) = count_diff_lines(&original_normalized, &current);
             let final_bytes = encode_with_meta(&current, &enc_meta);
 
-            staged.push((validated, entry.file_path.clone(), final_bytes, change_log, lines_added, lines_removed));
+            staged.push((
+                validated,
+                entry.file_path.clone(),
+                final_bytes,
+                change_log,
+                lines_added,
+                lines_removed,
+            ));
         }
 
         if args.dry_run {
@@ -5208,7 +5249,8 @@ impl Tool for MultiEditTool {
         }
 
         let mut written = Vec::new();
-        for (validated_path, display_path, bytes, change_log, lines_added, lines_removed) in &staged {
+        for (validated_path, display_path, bytes, change_log, lines_added, lines_removed) in &staged
+        {
             match atomic_write_bytes(validated_path, bytes).await {
                 Ok(()) => {
                     if let Some(cache) = get_file_state_cache() {
@@ -5340,9 +5382,9 @@ async fn pop_git_stash_snapshot() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xiaolin_core::tool::Tool;
     use std::io::Write;
     use tempfile::tempdir_in;
+    use xiaolin_core::tool::Tool;
 
     #[test]
     fn workspace_boundary_allows_repo_relative_paths() {
@@ -5851,8 +5893,8 @@ mod tests {
 #[cfg(test)]
 mod new_feature_tests {
     use super::*;
-    use xiaolin_core::tool::Tool;
     use tempfile::tempdir_in;
+    use xiaolin_core::tool::Tool;
 
     #[test]
     fn fuzzy_match_normalizes_whitespace() {
@@ -6131,7 +6173,8 @@ mod find_similar_files_tests {
         with_work_dir(Some(PathBuf::from("/tmp/myrepo")), async {
             let msg = format_not_found_with_suggestions("missing.rs", &[]);
             assert!(msg.contains("Current working directory: /tmp/myrepo"));
-        }).await;
+        })
+        .await;
     }
 }
 
@@ -6156,7 +6199,8 @@ mod suggest_path_under_cwd_tests {
             let result = suggest_path_under_cwd(&wrong_path);
             assert!(result.is_some(), "should suggest correction");
             assert_eq!(result.unwrap(), expected);
-        }).await;
+        })
+        .await;
     }
 
     #[tokio::test]
@@ -6172,7 +6216,8 @@ mod suggest_path_under_cwd_tests {
         with_work_dir(Some(repo), async move {
             let result = suggest_path_under_cwd(&already_correct);
             assert!(result.is_none(), "should return None for correct paths");
-        }).await;
+        })
+        .await;
     }
 
     #[tokio::test]
@@ -6186,8 +6231,12 @@ mod suggest_path_under_cwd_tests {
 
         with_work_dir(Some(repo), async move {
             let result = suggest_path_under_cwd(&wrong_path);
-            assert!(result.is_none(), "should return None when correction doesn't exist");
-        }).await;
+            assert!(
+                result.is_none(),
+                "should return None when correction doesn't exist"
+            );
+        })
+        .await;
     }
 
     #[tokio::test]
@@ -6199,7 +6248,8 @@ mod suggest_path_under_cwd_tests {
         with_work_dir(Some(repo), async {
             let result = suggest_path_under_cwd(Path::new("/etc/passwd"));
             assert!(result.is_none(), "should return None for unrelated paths");
-        }).await;
+        })
+        .await;
     }
 }
 
@@ -6250,21 +6300,24 @@ mod edit_error_code_tests {
 
     #[test]
     fn format_error_escapes_special_chars() {
-        let msg = EditErrorCode::NotMatched.format_error(
-            "test.rs",
-            "Line 1\nLine 2 with \"quotes\"",
-        );
-        let parsed: serde_json::Value = serde_json::from_str(&msg)
-            .expect("should be valid JSON even with special chars");
-        assert!(parsed.get("message").unwrap().as_str().unwrap().contains("Line 1"));
+        let msg =
+            EditErrorCode::NotMatched.format_error("test.rs", "Line 1\nLine 2 with \"quotes\"");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&msg).expect("should be valid JSON even with special chars");
+        assert!(parsed
+            .get("message")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("Line 1"));
     }
 }
 
 #[cfg(test)]
 mod multi_edit_tests {
     use super::*;
-    use xiaolin_core::tool::Tool;
     use tempfile::tempdir_in;
+    use xiaolin_core::tool::Tool;
 
     #[tokio::test]
     async fn multi_edit_atomic_success() {

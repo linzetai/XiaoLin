@@ -90,7 +90,10 @@ mod tests {
         let target = listener.local_addr().expect("local addr");
 
         let connector = TargetCheckedTcpConnector::new(false).with_upstream_proxy(true);
-        let err = connector.connect(target).await.expect_err("should reject private IP");
+        let err = connector
+            .connect(target)
+            .await
+            .expect_err("should reject private IP");
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
         assert!(
             format!("{err}").contains("network target rejected by policy"),
@@ -107,7 +110,10 @@ mod tests {
             "192.168.1.1:80".parse().unwrap(),
         ];
         for addr in addrs {
-            let err = connector.connect(addr).await.expect_err(&format!("should reject {addr}"));
+            let err = connector
+                .connect(addr)
+                .await
+                .expect_err(&format!("should reject {addr}"));
             assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
         }
     }

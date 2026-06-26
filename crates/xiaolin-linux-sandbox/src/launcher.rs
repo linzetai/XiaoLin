@@ -9,8 +9,8 @@ pub fn launch_child(
     cwd: Option<&Path>,
     env: &[(String, String)],
 ) -> Result<i32> {
-    use nix::sys::wait::{WaitStatus, waitpid};
-    use nix::unistd::{ForkResult, fork};
+    use nix::sys::wait::{waitpid, WaitStatus};
+    use nix::unistd::{fork, ForkResult};
 
     let c_program = CString::new(program.as_bytes()).context("program contains null byte")?;
     let c_args: Vec<CString> = std::iter::once(c_program.clone())
@@ -54,12 +54,7 @@ pub fn launch_child(
 mod tests {
     #[test]
     fn launch_echo() {
-        let result = super::launch_child(
-            "/bin/echo",
-            &["hello".to_string()],
-            None,
-            &[],
-        );
+        let result = super::launch_child("/bin/echo", &["hello".to_string()], None, &[]);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }

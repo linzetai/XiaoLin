@@ -13,7 +13,7 @@ use crate::policy::normalize_host;
 use crate::reasons::REASON_METHOD_NOT_ALLOWED;
 use crate::runtime::{BlockedRequestArgs, NetworkProxyState};
 use crate::upstream::UpstreamClient;
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -77,11 +77,7 @@ impl MitmState {
     }
 
     /// Create from explicit CA PEM (for testing).
-    pub fn from_ca_pem(
-        cert_pem: &str,
-        key_pem: &str,
-        allow_local_binding: bool,
-    ) -> Result<Self> {
+    pub fn from_ca_pem(cert_pem: &str, key_pem: &str, allow_local_binding: bool) -> Result<Self> {
         let ca = ManagedMitmCa::from_pem(cert_pem, key_pem)?;
         Ok(Self {
             ca,
@@ -190,10 +186,7 @@ async fn handle_mitm_request(
     }))
 }
 
-async fn forward_request(
-    req: Request<Incoming>,
-    ctx: &MitmRequestContext,
-) -> Result<HttpResponse> {
+async fn forward_request(req: Request<Incoming>, ctx: &MitmRequestContext) -> Result<HttpResponse> {
     if let Some(response) = mitm_blocking_response(&req, &ctx.policy).await? {
         return Ok(response);
     }
@@ -236,7 +229,9 @@ async fn forward_request(
         }
     });
 
-    let mut builder = Request::builder().method(&method).uri(uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/"));
+    let mut builder = Request::builder()
+        .method(&method)
+        .uri(uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/"));
     builder = builder.header(HOST, &authority);
 
     let upstream_req = builder

@@ -5,7 +5,7 @@
 //! configured upstream proxy when available.
 
 use crate::connect_policy::TargetCheckedTcpConnector;
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{anyhow, Context as _, Result};
 use std::fmt::Write as _;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -100,7 +100,9 @@ fn parse_proxy_endpoint(proxy_url: &str) -> Result<ProxyEndpoint> {
         .host_str()
         .ok_or_else(|| anyhow!("missing host in proxy URL"))?
         .to_string();
-    let port = parsed.port().unwrap_or(if scheme == "https" { 443 } else { 80 });
+    let port = parsed
+        .port()
+        .unwrap_or(if scheme == "https" { 443 } else { 80 });
 
     let auth = if !parsed.username().is_empty() {
         Some(ProxyAuth {
@@ -232,9 +234,7 @@ async fn connect_via_http_proxy(
         ));
     }
 
-    info!(
-        "upstream proxy tunnel established: target={target_host}:{target_port} via {proxy_addr}"
-    );
+    info!("upstream proxy tunnel established: target={target_host}:{target_port} via {proxy_addr}");
     Ok(stream)
 }
 
@@ -333,10 +333,7 @@ mod tests {
             all: None,
         };
         assert_eq!(config.proxy_for_protocol(false).unwrap().host, "http-proxy");
-        assert_eq!(
-            config.proxy_for_protocol(true).unwrap().host,
-            "https-proxy"
-        );
+        assert_eq!(config.proxy_for_protocol(true).unwrap().host, "https-proxy");
     }
 
     #[test]

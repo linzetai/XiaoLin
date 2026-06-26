@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use xiaolin_core::tool::{
-    Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult, no_retry_recovery_hint,
+    no_retry_recovery_hint, Tool, ToolErrorType, ToolKind, ToolParameterSchema, ToolResult,
 };
 use xiaolin_security::ssrf::{
     build_pinned_client, ssrf_check_parsed_url_pinned, ssrf_safe_redirect_policy,
@@ -99,7 +99,9 @@ async fn read_response_body_limited(
             let already = body.len();
             let remaining = max_bytes.saturating_sub(already);
             if remaining > 0 {
-                body.push_str(&String::from_utf8_lossy(&chunk[..remaining.min(chunk.len())]));
+                body.push_str(&String::from_utf8_lossy(
+                    &chunk[..remaining.min(chunk.len())],
+                ));
             }
             truncated = true;
             break;
@@ -307,7 +309,8 @@ impl Tool for HttpFetchTool {
         }
 
         let client = match ssrf_pinned_client_for_url(url, |b| {
-            b.timeout(std::time::Duration::from_secs(10)).redirect(ssrf_safe_redirect_policy())
+            b.timeout(std::time::Duration::from_secs(10))
+                .redirect(ssrf_safe_redirect_policy())
         }) {
             Ok(c) => c,
             Err(e) => {
@@ -542,7 +545,8 @@ impl SearchEngine for SearxngEngine {
     async fn search(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
         let search_url = format!("{}/search", self.base_url.trim_end_matches('/'));
         let client = match ssrf_pinned_client_for_url(&search_url, |b| {
-            b.timeout(std::time::Duration::from_secs(15)).user_agent("XiaoLin/0.1.0")
+            b.timeout(std::time::Duration::from_secs(15))
+                .user_agent("XiaoLin/0.1.0")
         }) {
             Ok(c) => c,
             Err(e) => {
@@ -1667,8 +1671,7 @@ pub fn strip_html_tags(html: &str) -> String {
                 continue;
             }
             if chars_starts_with_ascii_ignore_case(&chars, i, "<style ")
-                || (i + 6 < chars.len()
-                    && chars_starts_with_ascii_ignore_case(&chars, i, "<style"))
+                || (i + 6 < chars.len() && chars_starts_with_ascii_ignore_case(&chars, i, "<style"))
             {
                 in_style = true;
                 in_tag = true;
