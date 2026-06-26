@@ -436,23 +436,53 @@ pub(crate) async fn execute_tool_round(
         // Failed writes/shell commands should not reset the stagnation counter,
         // otherwise the agent can loop indefinitely alternating between failed
         // operations and read-only verification.
-        if result.success
-            && matches!(
+        //
+        // shell_exec / execute_command are further classified by command intent:
+        // - ReadOnly  (cat, head, ls, ...)   → no progress
+        // - Verification (cargo test, ...)   → shallow progress (had_verification_this_round)
+        // - Mutation  (write, edit, install) → real progress
+        if result.success {
+            let is_shell_cmd = matches!(
+                tool_name.as_str(),
+                "shell_exec" | "execute_command" | "terminal_input"
+            );
+
+            if is_shell_cmd {
+                let args_str = arguments.as_str();
+                let cmd = serde_json::from_str::<serde_json::Value>(args_str)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("command")
+                            .or(v.get("cmd"))
+                            .and_then(|c| c.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_default();
+                match classify_shell_command(&cmd) {
+                    ShellCommandClass::ReadOnly => {
+                        // Do NOT count as progress — cat/head/tail etc. are just reads
+                    }
+                    ShellCommandClass::Verification => {
+                        // Count as verification progress (shallow — won't indefinitely
+                        // reset the no-progress counter)
+                        ms.had_verification_this_round = true;
+                    }
+                    ShellCommandClass::Mutation => {
+                        ms.had_progress_this_round = true;
+                    }
+                }
+            } else if matches!(
                 tool_name.as_str(),
                 "edit_file"
                     | "write_file"
                     | "create_file"
                     | "str_replace_editor"
-                    | "shell_exec"
-                    | "execute_command"
-                    | "terminal_input"
-                    | "terminal_open"
                     | "spawn_subagent"
                     | "update_goal"
                     | "apply_patch"
-            )
-        {
-            ms.had_progress_this_round = true;
+            ) {
+                ms.had_progress_this_round = true;
+            }
         }
 
         // ── Track restoration state for post-compact recovery ──
@@ -798,5 +828,141 @@ pub(crate) async fn execute_tool_round(
         },
         force_stop_loop,
         plan_approval_pending,
+    }
+}
+
+// ── Shell command classification for progress tracking ──
+
+/// Classify a shell command by its effect on the workspace.
+///
+/// Used by progress tracking to avoid counting read-only operations
+/// (cat, head, grep, ls, ...) as real progress, which would
+/// indefinitely reset the no-progress stall counter.
+enum ShellCommandClass {
+    /// Read-only: cat, head, tail, grep, ls, find, wc, file, stat, echo, pwd, etc.
+    ReadOnly,
+    /// Verification: cargo test, npm test, cargo check, etc.
+    Verification,
+    /// Mutation: write, edit, install, git operations, mkdir, rm, mv, cp, etc.
+    Mutation,
+}
+
+fn classify_shell_command(command: &str) -> ShellCommandClass {
+    let cmd = command.trim();
+
+    // Skip leading env assignments / path prefixes like "VAR=val cmd" or "./cmd"
+    let first_word = cmd.split_whitespace().next().unwrap_or("");
+
+    // ── Read-only commands ──
+    let read_only: &[&str] = &[
+        "cat", "head", "tail", "less", "more",
+        "grep", "rg", "egrep", "fgrep",
+        "ls", "dir", "find", "locate",
+        "wc", "file", "stat", "du", "df",
+        "echo", "printf",
+        "pwd", "which", "type", "whereis",
+        "env", "printenv", "whoami", "uname", "hostname", "date",
+        "sort", "uniq", "cut", "tr", "awk", "sed",
+        "diff", "cmp", "comm",
+        "readlink", "realpath", "basename", "dirname",
+    ];
+
+    // Multi-word read-only commands
+    let read_only_multi: &[&str] = &[
+        "git log", "git show", "git diff", "git status", "git branch",
+        "git stash list", "git tag", "git remote",
+        "cargo doc", "cargo readme",
+    ];
+
+    let is_read_only = read_only.iter().any(|&ro| first_word == ro)
+        || read_only_multi.iter().any(|&rom| cmd.starts_with(rom));
+
+    if is_read_only {
+        return ShellCommandClass::ReadOnly;
+    }
+
+    // ── Verification commands (run tests, build, check, lint) ──
+    let verification: &[&str] = &[
+        "cargo test", "cargo build", "cargo check", "cargo clippy", "cargo fmt",
+        "npm test", "npm run test", "npx jest", "npx vitest", "npx playwright",
+        "pnpm test", "pnpm run test", "pnpm build",
+        "yarn test", "yarn build",
+        "go test", "go build", "go vet", "go lint",
+        "pytest", "python -m pytest", "tox",
+        "make test", "make check", "cmake --build",
+        "rustc --check", "rustfmt",
+        "eslint", "prettier", "tsc",
+    ];
+
+    let is_verification = verification.iter().any(|&v| cmd.starts_with(v));
+    if is_verification {
+        return ShellCommandClass::Verification;
+    }
+
+    // ── Everything else is mutation ──
+    ShellCommandClass::Mutation
+}
+
+#[cfg(test)]
+mod shell_classifier_tests {
+    use super::*;
+
+    #[test]
+    fn read_only_cat_head_tail() {
+        assert!(matches!(classify_shell_command("cat file.ts"), ShellCommandClass::ReadOnly));
+        assert!(matches!(classify_shell_command("head -100 file.ts"), ShellCommandClass::ReadOnly));
+        assert!(matches!(classify_shell_command("tail -20 app.log"), ShellCommandClass::ReadOnly));
+    }
+
+    #[test]
+    fn read_only_grep_ls_find() {
+        assert!(matches!(classify_shell_command("grep pattern file.ts"), ShellCommandClass::ReadOnly));
+        assert!(matches!(classify_shell_command("ls -la"), ShellCommandClass::ReadOnly));
+        assert!(matches!(classify_shell_command("find . -name '*.rs'"), ShellCommandClass::ReadOnly));
+    }
+
+    #[test]
+    fn read_only_git_log_status() {
+        assert!(matches!(classify_shell_command("git log --oneline"), ShellCommandClass::ReadOnly));
+        assert!(matches!(classify_shell_command("git status"), ShellCommandClass::ReadOnly));
+        assert!(matches!(classify_shell_command("git diff HEAD~1"), ShellCommandClass::ReadOnly));
+    }
+
+    #[test]
+    fn read_only_echo_date_wc() {
+        assert!(matches!(classify_shell_command("echo hello"), ShellCommandClass::ReadOnly));
+        assert!(matches!(classify_shell_command("date"), ShellCommandClass::ReadOnly));
+        assert!(matches!(classify_shell_command("wc -l file.ts"), ShellCommandClass::ReadOnly));
+    }
+
+    #[test]
+    fn verification_cargo_npm() {
+        assert!(matches!(classify_shell_command("cargo test"), ShellCommandClass::Verification));
+        assert!(matches!(classify_shell_command("cargo build --release"), ShellCommandClass::Verification));
+        assert!(matches!(classify_shell_command("cargo check"), ShellCommandClass::Verification));
+        assert!(matches!(classify_shell_command("npm test"), ShellCommandClass::Verification));
+        assert!(matches!(classify_shell_command("pnpm test"), ShellCommandClass::Verification));
+    }
+
+    #[test]
+    fn verification_go_python() {
+        assert!(matches!(classify_shell_command("go test ./..."), ShellCommandClass::Verification));
+        assert!(matches!(classify_shell_command("pytest"), ShellCommandClass::Verification));
+    }
+
+    #[test]
+    fn mutation_install_edit_git() {
+        assert!(matches!(classify_shell_command("npm install"), ShellCommandClass::Mutation));
+        assert!(matches!(classify_shell_command("cargo add serde"), ShellCommandClass::Mutation));
+        assert!(matches!(classify_shell_command("git commit -m 'msg'"), ShellCommandClass::Mutation));
+        assert!(matches!(classify_shell_command("git add ."), ShellCommandClass::Mutation));
+        assert!(matches!(classify_shell_command("mkdir newdir"), ShellCommandClass::Mutation));
+        assert!(matches!(classify_shell_command("rm file.txt"), ShellCommandClass::Mutation));
+    }
+
+    #[test]
+    fn unknown_defaults_to_mutation() {
+        // Any command not in the known lists defaults to Mutation (safe fallback)
+        assert!(matches!(classify_shell_command("some_unknown_tool"), ShellCommandClass::Mutation));
     }
 }

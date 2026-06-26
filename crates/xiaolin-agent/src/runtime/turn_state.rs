@@ -50,6 +50,11 @@ pub(crate) struct TurnMutableState {
     pub had_tool_calls_this_round: bool,
     /// Whether any progress-making tool (write, shell, subagent) was called this round.
     pub had_progress_this_round: bool,
+    /// Whether a verification command (test, build, check) was run this round.
+    /// Verification counts as shallow progress — it may partially reduce the
+    /// no-progress counter but should not fully reset it, preventing indefinite
+    /// stalling via repeated test runs without code changes.
+    pub had_verification_this_round: bool,
     pub injected_skill_ids: Vec<String>,
     pub trajectory_steps: Vec<TrajectoryStep>,
     pub budget_tracker: Option<BudgetTracker>,

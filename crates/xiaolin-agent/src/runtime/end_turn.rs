@@ -167,6 +167,7 @@ pub(crate) async fn handle_end_turn(
                 }
                 ms.had_tool_calls_this_round = false;
                 ms.had_progress_this_round = false;
+                ms.had_verification_this_round = false;
                 return EndTurnOutcome::StopHookContinuation;
             }
         } else {

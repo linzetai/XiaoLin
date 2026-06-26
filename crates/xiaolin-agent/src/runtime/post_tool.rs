@@ -170,7 +170,7 @@ pub(crate) async fn post_tool_processing(
 
     // 3b. Read-only stall detection (consecutive tool rounds without writes).
     ms.query_loop
-        .record_iteration_progress(ms.had_tool_calls_this_round, ms.had_progress_this_round);
+        .record_iteration_progress(ms.had_tool_calls_this_round, ms.had_progress_this_round, ms.had_verification_this_round);
     match ms.query_loop.check_no_progress_stall() {
         NoProgressStallAction::ForceStop => {
             tracing::warn!(

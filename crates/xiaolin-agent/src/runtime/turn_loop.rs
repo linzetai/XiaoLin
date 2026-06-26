@@ -25,6 +25,7 @@ pub(crate) async fn run_turn_loop(
     loop {
         ms.had_tool_calls_this_round = false;
         ms.had_progress_this_round = false;
+        ms.had_verification_this_round = false;
 
         // ═══════════════════════════════════════════════════════════════════
         // Phase 0: Cancellation check

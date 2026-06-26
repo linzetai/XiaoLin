@@ -309,10 +309,25 @@ impl QueryLoopState {
     }
 
     /// Consecutive tool-only iterations without write/shell/subagent progress.
-    pub fn record_iteration_progress(&mut self, had_tool_calls: bool, had_progress: bool) {
+    /// Verification commands (tests, builds) partially reset the counter but
+    /// only back to warn level — they cannot indefinitely mask a true stall.
+    pub fn record_iteration_progress(
+        &mut self,
+        had_tool_calls: bool,
+        had_progress: bool,
+        had_verification: bool,
+    ) {
         if had_progress {
             self.iterations_without_progress = 0;
             self.no_progress_stall_warn_sent = false;
+        } else if had_verification {
+            // Verification is shallow progress — reset to warn threshold if we're
+            // past it, but don't reset the warn_sent flag (we've already warned).
+            const WARN_ITERATIONS: u32 = 12;
+            if self.iterations_without_progress > WARN_ITERATIONS {
+                self.iterations_without_progress = WARN_ITERATIONS;
+            }
+            // Don't clear no_progress_stall_warn_sent — we already warned
         } else if had_tool_calls {
             self.iterations_without_progress = self.iterations_without_progress.saturating_add(1);
         }
@@ -1124,14 +1139,14 @@ mod tests {
     fn no_progress_stall_warns_then_force_stops() {
         let mut s = QueryLoopState::new(10);
         for _ in 0..11 {
-            s.record_iteration_progress(true, false);
+            s.record_iteration_progress(true, false, false);
             assert_eq!(s.check_no_progress_stall(), NoProgressStallAction::None);
         }
-        s.record_iteration_progress(true, false);
+        s.record_iteration_progress(true, false, false);
         assert_eq!(s.check_no_progress_stall(), NoProgressStallAction::Warn);
         assert_eq!(s.check_no_progress_stall(), NoProgressStallAction::None);
         for _ in 0..13 {
-            s.record_iteration_progress(true, false);
+            s.record_iteration_progress(true, false, false);
         }
         assert_eq!(
             s.check_no_progress_stall(),
@@ -1144,11 +1159,27 @@ mod tests {
     fn no_progress_stall_resets_on_progress() {
         let mut s = QueryLoopState::new(10);
         for _ in 0..10 {
-            s.record_iteration_progress(true, false);
+            s.record_iteration_progress(true, false, false);
         }
-        s.record_iteration_progress(true, true);
+        s.record_iteration_progress(true, true, false);
         assert_eq!(s.iterations_without_progress, 0);
         assert_eq!(s.check_no_progress_stall(), NoProgressStallAction::None);
+    }
+
+    #[test]
+    fn verification_partially_resets_progress() {
+        let mut s = QueryLoopState::new(10);
+        // Build up beyond WARN_ITERATIONS (12)
+        for _ in 0..14 {
+            s.record_iteration_progress(true, false, false);
+        }
+        assert!(s.iterations_without_progress >= 12);
+        // Verification should reset back to WARN_ITERATIONS (12), not 0
+        s.record_iteration_progress(true, false, true);
+        assert_eq!(s.iterations_without_progress, 12);
+        // Verification below WARN should not change the counter
+        s.record_iteration_progress(true, false, true);
+        assert_eq!(s.iterations_without_progress, 12);
     }
 
     #[test]
