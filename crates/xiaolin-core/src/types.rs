@@ -466,6 +466,10 @@ pub struct SubAgentRun {
     /// (the DB row schema does not include it, so loads default to `None`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_tool: Option<String>,
+    /// Whether the result was truncated when sent to the parent agent.
+    /// The stored `result` is the full text; the forwarded version may be shorter.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 /// Status of an MCP server connection.

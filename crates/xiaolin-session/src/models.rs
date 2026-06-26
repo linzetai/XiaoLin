@@ -103,8 +103,71 @@ pub struct SubAgentRunRow {
     pub elapsed_ms: Option<i64>,
     pub created_at: String,
     pub completed_at: Option<String>,
-    /// JSON-serialized sidechain transcript: messages exchanged during the sub-agent run.
+    /// Path to the sidechain transcript file (legacy column name: stores path, not JSON content).
     pub transcript_json: Option<String>,
+}
+
+impl From<SubAgentRunRow> for xiaolin_core::types::SubAgentRun {
+    fn from(r: SubAgentRunRow) -> Self {
+        let status = match r.status.as_str() {
+            "pending" => xiaolin_core::types::SubAgentStatus::Pending,
+            "running" => xiaolin_core::types::SubAgentStatus::Running,
+            "completed" => xiaolin_core::types::SubAgentStatus::Completed,
+            "cancelled" => xiaolin_core::types::SubAgentStatus::Cancelled,
+            "failed" => {
+                xiaolin_core::types::SubAgentStatus::Failed(r.result.clone().unwrap_or_default())
+            }
+            other => xiaolin_core::types::SubAgentStatus::Failed(format!("unknown status: {other}")),
+        };
+        let token_usage: Option<xiaolin_core::types::Usage> =
+            r.token_usage_json.as_ref().and_then(|j| {
+                let v: serde_json::Value = serde_json::from_str(j).ok()?;
+                Some(xiaolin_core::types::Usage {
+                    prompt_tokens: v.get("prompt_tokens")?.as_u64()? as u32,
+                    completion_tokens: v.get("completion_tokens")?.as_u64()? as u32,
+                    total_tokens: v.get("total_tokens")?.as_u64()? as u32,
+                    ..Default::default()
+                })
+            });
+        // Restore truncated flag that was encoded into token_usage_json by build_db_row.
+        let truncated = r.token_usage_json.as_ref().and_then(|j| {
+            let v: serde_json::Value = serde_json::from_str(j).ok()?;
+            v.get("truncated")?.as_bool()
+        }).unwrap_or(false);
+        let created_at_ms = chrono::DateTime::parse_from_rfc3339(&r.created_at)
+            .map(|dt| dt.timestamp_millis() as u64)
+            .unwrap_or(0);
+        let completed_at_ms = r.completed_at.as_ref().and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.timestamp_millis() as u64)
+                .ok()
+        });
+        Self {
+            run_id: r.run_id,
+            parent_session_id: r.parent_session_id,
+            parent_message_id: r.parent_message_id,
+            agent_id: xiaolin_core::types::AgentId::from(r.agent_id.as_str()),
+            subagent_type: match r.subagent_type.as_str() {
+                "explore" => xiaolin_core::types::SubAgentType::Explore,
+                "shell" => xiaolin_core::types::SubAgentType::Shell,
+                "browser" => xiaolin_core::types::SubAgentType::Browser,
+                "general" => xiaolin_core::types::SubAgentType::General,
+                other => xiaolin_core::types::SubAgentType::Custom(other.into()),
+            },
+            task: r.task,
+            status,
+            created_at: created_at_ms,
+            completed_at: completed_at_ms,
+            result: r.result,
+            tool_calls_made: r.tool_calls_made as u32,
+            iterations: r.iterations as u32,
+            token_usage,
+            depth: r.depth as u32,
+            elapsed_ms: r.elapsed_ms.map(|e| e as u64),
+            current_tool: None,
+            truncated,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

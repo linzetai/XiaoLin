@@ -373,6 +373,13 @@ pub(crate) async fn handle_end_turn(
         plan_path: None,
         plan_exists: None,
     };
+    // Compute live quality diagnosis code so the turn_end event's end_reason
+    // matches the persisted quality diagnosis instead of always showing "completed".
+    let quality_diagnosis_code = if repeated_force > 0 || repeated_warn > 0 {
+        Some("tool_loop".to_string())
+    } else {
+        None
+    };
     let _ = send_step(
         &svc.step_tx,
         AgentStep::TurnEnd {
@@ -380,7 +387,7 @@ pub(crate) async fn handle_end_turn(
             reason: turn_end_reason,
             summary: summary.clone(),
             session_id: svc.session_id.clone(),
-            quality_diagnosis_code: None, // The gateway/runtime quality infra applies this
+            quality_diagnosis_code,
             evidence: Some(evidence),
         },
         false,

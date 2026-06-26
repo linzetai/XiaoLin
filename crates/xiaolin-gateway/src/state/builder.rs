@@ -974,6 +974,7 @@ impl StateBuilder {
             )),
         );
         subagent_manager.set_artifact_store(artifact_store.clone());
+        subagent_manager.set_session_store(session_store_for_session.clone());
         let subagent_manager_shared = Arc::new(subagent_manager);
 
         let session_manager = Arc::new(xiaolin_session_actor::SessionManager::new(Arc::new(

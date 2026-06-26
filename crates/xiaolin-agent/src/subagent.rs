@@ -19,6 +19,28 @@ use xiaolin_protocol::Role;
 
 use crate::subagent_manager::SubAgentManager;
 
+/// Convergence contract appended to every subagent system prompt.
+///
+/// This ensures subagents produce structured, actionable deliverables instead
+/// of raw reasoning / process streams that the parent agent cannot consume.
+const SUBAGENT_CONVERGENCE_CONTRACT: &str = "\n\n\
+## Output Protocol (Mandatory)\n\
+Before your final response, you MUST include a structured result block:\n\
+```\n\
+## Status: [DONE | PARTIAL | FAILED]\n\
+## Key Findings\n\
+- (concise bullet points)\n\
+## Artifacts\n\
+- file paths / line numbers / diffs (if any)\n\
+## Next Steps (for the parent agent)\n\
+- (concrete next actions, NOT speculation)\n\
+## Blockers (if any)\n\
+- (what prevented full completion)\n\
+```\n\
+If you could not complete the task, do NOT describe what you tried step-by-step.\n\
+Instead, state what is missing and what the parent should do next.\n\
+Your output is the final deliverable — do not include process narration.";
+
 fn subagent_invalid_args(e: impl Display) -> ToolResult {
     ToolResult::err_with_recovery(
         ToolErrorType::InvalidToolParams,
@@ -341,6 +363,17 @@ impl Tool for SubAgentTool {
 - Parallel work: spawn multiple sub-agents with non-overlapping scopes\n\
 - Specialized types (explore, code, shell, research) with tailored tool sets\n\
 - Mid-conversation delegation when the sub-agent should NOT see full chat history\n\n\
+## Sub-Agent Output Contract\n\
+Every sub-agent MUST end with a structured result block:\n\
+```\n\
+## Status: DONE | PARTIAL | FAILED\n\
+## Key Findings: bullet list\n\
+## Artifacts: file paths / line numbers / diffs\n\
+## Next Steps: concrete actions for you (the parent)\n\
+## Blockers: what prevented full completion (if any)\n\
+```\n\
+If a sub-agent's result looks like process narration instead of a structured\n\
+summary, read the sidechain transcript via the provided transcript_path.\n\n\
 ## Background Delegation (This Session)\n\
 - Use **spawn_subagent** with `background=true` for async in-session delegation; returns `run_id` immediately\n\
 - Poll with `subagent_get` / `wait_agent`, steer with `send_message`, resume with `resume_subagent`\n\
@@ -368,7 +401,8 @@ Coordinator mode always forces background.\n\n\
 - Do NOT spawn for 1–3 trivial tool calls — do them directly\n\
 - Do NOT spawn overlapping file editors without coordination (merge conflicts)\n\
 - Do NOT retry spawn in a tight loop on depth/limit errors — use subagent_list or work locally\n\
-- Do NOT use vague tasks — include paths, goals, and success criteria like briefing a new colleague"
+- Do NOT use vague tasks — include paths, goals, and success criteria like briefing a new colleague\n\
+- Do NOT accept process-stream results — if result is not structured, read the sidechain transcript"
             .to_string()
     }
 
@@ -528,11 +562,12 @@ Coordinator mode always forces background.\n\n\
 
         let agent_config = match self.manager.resolve_agent("main") {
             Some(mut c) => {
-                if let Some(ref def) = def {
-                    if let Some(ref prompt) = def.system_prompt {
-                        c.system_prompt = Some(prompt.clone());
-                    }
-                }
+                let mut prompt = def
+                    .as_ref()
+                    .and_then(|d| d.system_prompt.clone())
+                    .unwrap_or_default();
+                prompt.push_str(SUBAGENT_CONVERGENCE_CONTRACT);
+                c.system_prompt = Some(prompt);
                 c
             }
             None => {
@@ -540,11 +575,12 @@ Coordinator mode always forces background.\n\n\
                 match agents.first() {
                     Some(c) => {
                         let mut c = c.clone();
-                        if let Some(ref def) = def {
-                            if let Some(ref prompt) = def.system_prompt {
-                                c.system_prompt = Some(prompt.clone());
-                            }
-                        }
+                        let mut prompt = def
+                            .as_ref()
+                            .and_then(|d| d.system_prompt.clone())
+                            .unwrap_or_default();
+                        prompt.push_str(SUBAGENT_CONVERGENCE_CONTRACT);
+                        c.system_prompt = Some(prompt);
                         c
                     }
                     None => {
@@ -803,8 +839,21 @@ impl Tool for SubAgentGetTool {
             Err(e) => return subagent_invalid_args(e),
         };
 
-        match self.manager.get_run(&params.run_id) {
+        match self.manager.get_run_async(&params.run_id).await {
             Some(run) => {
+                let result_kind = classify_result_kind(run.result.as_deref());
+                let sidechain_base = std::env::var("HOME")
+                    .map(|h| format!("{h}/.xiaolin/sessions"))
+                    .unwrap_or_default();
+                // Find the parent session this run belongs to for sidechain path
+                let transcript_path = if !run.parent_session_id.is_empty() {
+                    Some(format!(
+                        "{}/{}/sidechains/{}.jsonl",
+                        sidechain_base, run.parent_session_id, run.run_id
+                    ))
+                } else {
+                    None
+                };
                 let json = serde_json::json!({
                     "run_id": run.run_id,
                     "agent_id": run.agent_id.to_string(),
@@ -812,6 +861,9 @@ impl Tool for SubAgentGetTool {
                     "task": run.task,
                     "status": format!("{:?}", run.status),
                     "result": run.result,
+                    "result_kind": result_kind,
+                    "transcript_path": transcript_path,
+                    "truncated": run.truncated,
                     "tool_calls_made": run.tool_calls_made,
                     "iterations": run.iterations,
                     "elapsed_ms": run.completed_at.map(|c| c.saturating_sub(run.created_at)),
@@ -824,6 +876,46 @@ impl Tool for SubAgentGetTool {
             ),
         }
     }
+}
+
+/// Classify subagent result quality from raw result text.
+///
+/// - `structured`: contains the required convergence contract markers
+/// - `process_stream`: looks like narration/thinking, not a deliverable
+/// - `empty`: no result available
+/// - `truncated`: result was cut off mid-sentence
+/// - `incomplete`: result exists but lacks structure markers and process indicators
+fn classify_result_kind(result: Option<&str>) -> &'static str {
+    let Some(text) = result else {
+        return "empty";
+    };
+    if text.is_empty() {
+        return "empty";
+    }
+    // Structured results have the convergence contract markers
+    let has_status = text.contains("## Status:")
+        || text.contains("Status: DONE")
+        || text.contains("Status: PARTIAL")
+        || text.contains("Status: FAILED");
+    let has_findings = text.contains("## Key Findings") || text.contains("## Findings");
+    let has_next_steps = text.contains("## Next Steps") || text.contains("## Next");
+    if has_status && (has_findings || has_next_steps) {
+        return "structured";
+    }
+    // Process stream indicators: first-person narration, exploratory language
+    let process_indicators = [
+        "I'll ", "Let me ", "I will ", "First, ", "Now let me ",
+        "I found ", "I can see ", "Looking at ", "Let me try",
+        "I need to ", "I should ", "I'm going to ",
+    ];
+    if process_indicators.iter().any(|p| text.starts_with(p) || text.contains(p)) {
+        return "process_stream";
+    }
+    if text.ends_with("…") || text.ends_with("...") {
+        return "truncated";
+    }
+    // Default: unclear structure — flag as incomplete for parent review
+    "incomplete"
 }
 
 // ---------------------------------------------------------------------------
@@ -885,7 +977,7 @@ impl Tool for SubAgentListTool {
     }
 
     async fn execute(&self, _arguments: &str) -> ToolResult {
-        let runs = self.manager.list_runs(None);
+        let runs = self.manager.list_runs_async(None).await;
         let summaries: Vec<serde_json::Value> = runs
             .iter()
             .map(|r| {
@@ -951,6 +1043,15 @@ impl Tool for WaitAgentTool {
 - After spawning multiple background agents and you need all (or any) results before continuing\n\
 - Fan-in step of parallel explore/implement patterns\n\
 - Prefer over tight polling loops of `subagent_get`\n\n\
+## Result Quality Fields\n\
+Each completed result includes these quality indicators:\n\
+- `result_kind`: \"structured\" | \"process_stream\" | \"empty\" | \"truncated\" | \"incomplete\"\n\
+  - `process_stream` means the result looks like narration/thinking, not a summary\n\
+  - `incomplete` means the result exists but lacks both structure markers and process indicators\n\
+  - When `result_kind` is NOT `structured`, read the `transcript_path` sidechain\n\
+- `transcript_path`: absolute path to the full sidechain JSONL transcript\n\
+- `truncated`: true if the result was cut short by the char limit\n\
+- `tool_calls_made`, `iterations`: runtime metrics\n\n\
 ## Tool Cooperation\n\
 - Collect `run_id`s from `spawn_subagent` or `subagent_list`\n\
 - After wait completes, read per-run results from the returned `results` map\n\
@@ -1023,7 +1124,7 @@ impl Tool for WaitAgentTool {
         let timeout = std::time::Duration::from_secs(params.timeout_seconds.unwrap_or(300));
 
         for rid in &params.run_ids {
-            if self.manager.get_run(rid).is_none() {
+            if self.manager.get_run_async(rid).await.is_none() {
                 return subagent_not_found(
                     format!("unknown run_id: {rid}"),
                     "Call subagent_list to see valid run_ids before calling wait_agent.",
@@ -1035,23 +1136,47 @@ impl Tool for WaitAgentTool {
         let mut pending: std::collections::HashSet<String> =
             params.run_ids.iter().cloned().collect();
 
+        let build_result_entry = |run: &xiaolin_core::types::SubAgentRun| -> serde_json::Value {
+            let result_kind = classify_result_kind(run.result.as_deref());
+            let transcript_path = if !run.parent_session_id.is_empty() {
+                std::env::var("HOME").ok().map(|h| {
+                    format!(
+                        "{}/.xiaolin/sessions/{}/sidechains/{}.jsonl",
+                        h, run.parent_session_id, run.run_id
+                    )
+                })
+            } else {
+                None
+            };
+            match &run.status {
+                SubAgentStatus::Completed => serde_json::json!({
+                    "status": "completed",
+                    "result": run.result,
+                    "result_kind": result_kind,
+                    "transcript_path": transcript_path,
+                    "truncated": run.truncated,
+                    "tool_calls_made": run.tool_calls_made,
+                    "iterations": run.iterations,
+                }),
+                SubAgentStatus::Failed(msg) => serde_json::json!({
+                    "status": "failed",
+                    "error": msg,
+                    "result_kind": result_kind,
+                    "transcript_path": transcript_path,
+                }),
+                SubAgentStatus::Cancelled => serde_json::json!({
+                    "status": "cancelled",
+                    "result_kind": result_kind,
+                    "transcript_path": transcript_path,
+                }),
+                _ => unreachable!(),
+            }
+        };
+
         for rid in &params.run_ids {
-            if let Some(run) = self.manager.get_run(rid) {
+            if let Some(run) = self.manager.get_run_async(rid).await {
                 if run.status.is_terminal() {
-                    let entry = match &run.status {
-                        SubAgentStatus::Completed => serde_json::json!({
-                            "status": "completed",
-                            "result": run.result
-                        }),
-                        SubAgentStatus::Failed(msg) => serde_json::json!({
-                            "status": "failed",
-                            "error": msg
-                        }),
-                        SubAgentStatus::Cancelled => serde_json::json!({
-                            "status": "cancelled"
-                        }),
-                        _ => unreachable!(),
-                    };
+                    let entry = build_result_entry(&run);
                     results.insert(rid.clone(), entry);
                     pending.remove(rid);
                 }
@@ -1130,22 +1255,9 @@ impl Tool for WaitAgentTool {
 
             let mut newly_done = Vec::new();
             for rid in &pending {
-                if let Some(run) = self.manager.get_run(rid) {
+                if let Some(run) = self.manager.get_run_async(rid).await {
                     if run.status.is_terminal() {
-                        let entry = match &run.status {
-                            SubAgentStatus::Completed => serde_json::json!({
-                                "status": "completed",
-                                "result": run.result
-                            }),
-                            SubAgentStatus::Failed(msg) => serde_json::json!({
-                                "status": "failed",
-                                "error": msg
-                            }),
-                            SubAgentStatus::Cancelled => serde_json::json!({
-                                "status": "cancelled"
-                            }),
-                            _ => unreachable!(),
-                        };
+                        let entry = build_result_entry(&run);
                         results.insert(rid.clone(), entry);
                         newly_done.push(rid.clone());
                     }
@@ -1539,7 +1651,7 @@ impl Tool for SendMessageTool {
             _ => crate::message_queue::Priority::Normal,
         };
 
-        let run = self.manager.get_run(&params.run_id);
+        let run = self.manager.get_run_async(&params.run_id).await;
         match run {
             Some(r) if r.status == SubAgentStatus::Running => {}
             Some(_) => {
@@ -1888,6 +2000,7 @@ mod tests {
             token_usage: None,
             elapsed_ms: None,
             current_tool: None,
+            truncated: false,
         }
     }
 
@@ -1909,6 +2022,7 @@ mod tests {
             token_usage: None,
             elapsed_ms: None,
             current_tool: None,
+            truncated: false,
         }
     }
 

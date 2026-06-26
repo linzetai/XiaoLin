@@ -9,6 +9,7 @@ use xiaolin_core::agent_config::{AgentConfig, FileAccessMode, SubAgentDef, SubAg
 use xiaolin_core::tool::ToolRegistry;
 use xiaolin_core::types::{ChatMessage, SubAgentRun, SubAgentStatus, SubAgentType, Usage};
 use xiaolin_protocol::{AgentEvent, CompletionSummary, TokenUsage, TurnId};
+use xiaolin_session::SubAgentRunRow;
 
 use crate::message_queue::MessageQueue;
 
@@ -47,6 +48,8 @@ pub struct SubAgentManager {
     bubble_port: Arc<xiaolin_core::tool_runtime::BubbleApprovalPort>,
     /// Shared artifact store for persisting subagent file operations under the parent session.
     artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
+    /// Session store for persisting subagent run records to the DB.
+    session_store: Option<Arc<xiaolin_session::SessionStore>>,
 }
 
 impl SubAgentManager {
@@ -69,11 +72,74 @@ impl SubAgentManager {
             run_queues: Arc::new(DashMap::new()),
             bubble_port: Arc::new(xiaolin_core::tool_runtime::BubbleApprovalPort::new()),
             artifact_store: None,
+            session_store: None,
         }
     }
 
     pub fn set_artifact_store(&mut self, store: Arc<dyn xiaolin_session::ArtifactStore>) {
         self.artifact_store = Some(store);
+    }
+
+    /// Set the session store for persisting subagent run records.
+    pub fn set_session_store(&mut self, store: Arc<xiaolin_session::SessionStore>) {
+        self.session_store = Some(store);
+    }
+
+    /// Build a `SubAgentRunRow` from an in-memory `SubAgentRun`, including the
+    /// sidechain transcript path for post-mortem inspection.
+    pub(crate) fn build_db_row(run: &SubAgentRun) -> SubAgentRunRow {
+        let transcript_path = crate::sidechain::resolve_sidechain_path(
+            &run.parent_session_id,
+            &run.run_id,
+        );
+        let transcript_json = transcript_path.exists().then(|| {
+            transcript_path.to_string_lossy().to_string()
+        });
+        SubAgentRunRow {
+            run_id: run.run_id.clone(),
+            parent_session_id: run.parent_session_id.clone(),
+            parent_message_id: run.parent_message_id.clone(),
+            agent_id: run.agent_id.to_string(),
+            subagent_type: run.subagent_type.to_string(),
+            task: run.task.clone(),
+            status: match &run.status {
+                SubAgentStatus::Pending => "pending".to_string(),
+                SubAgentStatus::Running => "running".to_string(),
+                SubAgentStatus::Completed => "completed".to_string(),
+                SubAgentStatus::Cancelled => "cancelled".to_string(),
+                SubAgentStatus::Failed(_msg) => "failed".to_string(),
+            },
+            result: match &run.status {
+                SubAgentStatus::Failed(msg) => Some(msg.clone()),
+                _ => run.result.clone(),
+            },
+            tool_calls_made: run.tool_calls_made as i64,
+            iterations: run.iterations as i64,
+            token_usage_json: {
+                let mut json = serde_json::Map::new();
+                if let Some(ref u) = run.token_usage {
+                    json.insert("prompt_tokens".to_string(), serde_json::json!(u.prompt_tokens));
+                    json.insert("completion_tokens".to_string(), serde_json::json!(u.completion_tokens));
+                    json.insert("total_tokens".to_string(), serde_json::json!(u.total_tokens));
+                }
+                // Encode truncated flag into the usage JSON so it survives DB round-trip
+                // without a schema migration.
+                if run.truncated {
+                    json.insert("truncated".to_string(), serde_json::json!(true));
+                }
+                if json.is_empty() { None } else { Some(serde_json::Value::Object(json).to_string()) }
+            },
+            depth: run.depth as i64,
+            elapsed_ms: run.elapsed_ms.map(|e| e as i64),
+            created_at: chrono::DateTime::from_timestamp_millis(run.created_at as i64)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default(),
+            completed_at: run.completed_at.and_then(|t| {
+                chrono::DateTime::from_timestamp_millis(t as i64)
+                    .map(|dt| dt.to_rfc3339())
+            }),
+            transcript_json,
+        }
     }
 
     pub fn controller(&self) -> &Arc<SpawnController> {
@@ -327,6 +393,7 @@ impl SubAgentManager {
             depth: current_depth + 1,
             elapsed_ms: None,
             current_tool: None,
+            truncated: false,
         };
         self.runs.insert(run_id.clone(), run);
 
@@ -369,6 +436,7 @@ impl SubAgentManager {
         let orchestrator = self.orchestrator.clone();
         let completion_channels = self.completion_channels.clone();
         let artifact_store = self.artifact_store.clone();
+        let session_store = self.session_store.clone();
         let result_char_limit = max_result_chars.unwrap_or(crate::sidechain::MAX_RESULT_CHARS);
 
         let timeout = Duration::from_secs(policy.timeout_seconds);
@@ -395,6 +463,7 @@ impl SubAgentManager {
             let task_outer = task.clone();
             let cancel_tokens_outer = cancel_tokens.clone();
             let run_queues_outer = run_queues_ref.clone();
+            let session_store_outer = session_store.clone();
 
             // Hard wall-clock timeout: ensures the entire spawned task (slot wait + execution)
             // cannot exceed wall_clock_limit, preventing indefinite hangs.
@@ -477,6 +546,7 @@ impl SubAgentManager {
                         Some(mq.clone()),
                         approval_strat,
                         artifact_store.clone(),
+                        session_store_outer.clone(),
                         runs.clone(),
                     ) => {
                         res
@@ -487,8 +557,14 @@ impl SubAgentManager {
 
                 match result {
                     Ok((response_text, tool_calls_made, iterations, usage)) => {
+                        let was_truncated =
+                            response_text.len() > result_char_limit;
                         let truncated_result =
-                            crate::sidechain::truncate_result(&response_text, result_char_limit);
+                            if was_truncated {
+                                crate::sidechain::truncate_result(&response_text, result_char_limit)
+                            } else {
+                                response_text.clone()
+                            };
                         let _ = parent_tx
                             .send(AgentEvent::SubAgentComplete {
                                 turn_id: complete_turn_id.clone(),
@@ -521,6 +597,21 @@ impl SubAgentManager {
                             r.token_usage = usage;
                             r.elapsed_ms = Some(elapsed_ms);
                             r.current_tool = None;
+                            r.truncated = was_truncated;
+                        }
+
+                        // Persist the completed run to the DB.
+                        if let Some(ref store) = session_store_outer {
+                            let run_snapshot = runs.get(&rid);
+                            if let Some(run) = run_snapshot {
+                                let row = Self::build_db_row(&run);
+                                let store_clone: Arc<xiaolin_session::SessionStore> = Arc::clone(store);
+                                tokio::spawn(async move {
+                                    if let Err(e) = store_clone.save_subagent_run(&row).await {
+                                        tracing::warn!(error = %e, run_id = row.run_id, "failed to persist subagent run");
+                                    }
+                                });
+                            }
                         }
 
                         let result_preview = if response_text.len() > 2000 {
@@ -604,6 +695,20 @@ impl SubAgentManager {
                             // A worker that fails mid-tool has no matching ToolResult, so clear the
                             // in-flight marker here to avoid a stale `current_tool` in get_run/list_runs.
                             r.current_tool = None;
+                        }
+
+                        // Persist failed/cancelled runs to the DB.
+                        if let Some(ref store) = session_store_outer {
+                            let run_snapshot = runs.get(&rid);
+                            if let Some(run) = run_snapshot {
+                                let row = Self::build_db_row(&run);
+                                let store_clone: Arc<xiaolin_session::SessionStore> = Arc::clone(store);
+                                tokio::spawn(async move {
+                                    if let Err(e) = store_clone.save_subagent_run(&row).await {
+                                        tracing::warn!(error = %e, run_id = row.run_id, "failed to persist subagent run");
+                                    }
+                                });
+                            }
                         }
 
                         if let Some(tx) = completion_channels.get(&session_id_owned) {
@@ -874,6 +979,7 @@ impl SubAgentManager {
         message_queue: Option<Arc<MessageQueue>>,
         approval_strategy: xiaolin_core::tool_runtime::ApprovalStrategy,
         artifact_store: Option<Arc<dyn xiaolin_session::ArtifactStore>>,
+        _session_store: Option<Arc<xiaolin_session::SessionStore>>,
         live_runs: Arc<DashMap<String, SubAgentRun>>,
     ) -> anyhow::Result<(String, u32, u32, Option<Usage>)> {
         use crate::sidechain::{SidechainMessage, SidechainMeta, SidechainWriter};
@@ -957,7 +1063,8 @@ impl SubAgentManager {
         let live_runs_fwd = live_runs;
 
         let forwarder = tokio::spawn(async move {
-            let mut accumulated_text = String::new();
+            let mut accumulated_content = String::new();
+            let mut accumulated_reasoning = String::new();
             let mut final_usage: Option<Usage> = None;
             let mut writer = sidechain_writer;
 
@@ -989,7 +1096,7 @@ impl SubAgentManager {
                             .and_then(|d| d.get("content"))
                             .and_then(|c| c.as_str())
                         {
-                            accumulated_text.push_str(content);
+                            accumulated_content.push_str(content);
                             let _ = parent_tx_clone
                                 .send(AgentEvent::SubAgentDelta {
                                     turn_id: forward_turn_id.clone(),
@@ -1000,7 +1107,7 @@ impl SubAgentManager {
                         }
                     }
                     AgentEvent::ReasoningDelta { content, .. } => {
-                        accumulated_text.push_str(content);
+                        accumulated_reasoning.push_str(content);
                         let _ = parent_tx_clone
                             .send(AgentEvent::SubAgentDelta {
                                 turn_id: forward_turn_id.clone(),
@@ -1119,12 +1226,12 @@ impl SubAgentManager {
                 }
             }
 
-            // Write final assistant message to sidechain (full accumulated text)
+            // Write final assistant message to sidechain (content only, excluding reasoning)
             if let Some(ref mut w) = writer {
-                if !accumulated_text.is_empty() {
+                if !accumulated_content.is_empty() {
                     let msg = SidechainMessage {
                         role: "assistant".to_string(),
-                        content: accumulated_text.clone(),
+                        content: accumulated_content.clone(),
                         tool_calls_json: None,
                         tool_call_id: None,
                         timestamp: std::time::SystemTime::now()
@@ -1139,7 +1246,9 @@ impl SubAgentManager {
                 }
             }
 
-            (accumulated_text, final_usage)
+            // Return only the assistant content as the subagent result.
+            // Reasoning is intentionally excluded — it's process/thinking, not a deliverable.
+            (accumulated_content, final_usage)
         });
 
         let effective_config;
@@ -1179,13 +1288,13 @@ impl SubAgentManager {
             )
             .await;
 
-        let (accumulated_text, final_usage) = forwarder
+        let (result_content, final_usage) = forwarder
             .await
             .map_err(|e| anyhow::anyhow!("forwarder task panicked: {e}"))?;
 
         match stream_result {
             Ok(summary) => Ok((
-                accumulated_text,
+                result_content,
                 summary.tool_calls_made,
                 summary.iterations,
                 final_usage,
@@ -1217,18 +1326,67 @@ impl SubAgentManager {
         }
     }
 
-    /// Get a snapshot of a sub-agent run.
+    /// Get a snapshot of a sub-agent run (memory only).
+    /// For DB fallback, use `get_run_async` instead.
     pub fn get_run(&self, run_id: &str) -> Option<SubAgentRun> {
         self.runs.get(run_id).map(|r| r.clone())
     }
 
-    /// List all runs, optionally filtered by parent session.
+    /// Get a snapshot of a sub-agent run with DB fallback.
+    /// Falls back to the session store when not found in memory,
+    /// so runs survive GC, process restart, and session resume.
+    pub async fn get_run_async(&self, run_id: &str) -> Option<SubAgentRun> {
+        if let Some(r) = self.runs.get(run_id) {
+            return Some(r.clone());
+        }
+        // DB fallback via async await — safe on current-thread runtimes.
+        if let Some(ref store) = self.session_store {
+            match store.get_subagent_run(run_id).await {
+                Ok(Some(row)) => return Some(SubAgentRun::from(row)),
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!(%run_id, error = %e, "DB fallback for get_run failed");
+                }
+            }
+        }
+        None
+    }
+
+    /// List all runs, optionally filtered by parent session (memory only).
+    /// For DB fallback, use `list_runs_async` instead.
     pub fn list_runs(&self, parent_session_id: Option<&str>) -> Vec<SubAgentRun> {
         self.runs
             .iter()
             .filter(|r| parent_session_id.is_none_or(|sid| r.parent_session_id == sid))
             .map(|r| r.value().clone())
             .collect()
+    }
+
+    /// List all runs with DB fallback, merging in-memory runs with persisted records.
+    /// Safe on current-thread runtimes (uses async .await, not block_in_place).
+    pub async fn list_runs_async(
+        &self,
+        parent_session_id: Option<&str>,
+    ) -> Vec<SubAgentRun> {
+        let mut runs: Vec<SubAgentRun> = self.list_runs(parent_session_id);
+
+        // DB fallback: merge persisted runs not already in memory
+        if let (Some(store), Some(sid)) = (self.session_store.as_ref(), parent_session_id) {
+            match store.list_subagent_runs(sid).await {
+                Ok(db_rows) => {
+                    for row in db_rows {
+                        if !runs.iter().any(|r| r.run_id == row.run_id) {
+                            runs.push(SubAgentRun::from(row));
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(session_id = %sid, error = %e, "DB fallback for list_runs failed");
+                }
+            }
+        }
+
+        runs
     }
 
     /// Insert a run directly (for testing).
@@ -1419,6 +1577,7 @@ mod tests {
             token_usage: None,
             elapsed_ms: None,
             current_tool: None,
+            truncated: false,
         };
         let mut run2 = run1.clone();
         run2.run_id = "r2".into();
@@ -1452,6 +1611,7 @@ mod tests {
             token_usage: None,
             elapsed_ms: None,
             current_tool: None,
+            truncated: false,
         };
         let mut running = old_run.clone();
         running.run_id = "active".into();
@@ -1495,5 +1655,100 @@ mod tests {
             mgr.get_session_tx("s2").is_some(),
             "s2 sender should remain"
         );
+    }
+
+    #[test]
+    fn build_db_row_failed_status_uses_failed_not_debug_format() {
+        // High: format!("{:?}", Failed("timeout after 60s")).to_lowercase()
+        // produces "failed(\"timeout after 60s\")" which the From impl can't
+        // parse — it only matches the literal "failed".
+        let run = SubAgentRun {
+            run_id: "r-fail".into(),
+            parent_session_id: "s1".into(),
+            parent_message_id: "m1".into(),
+            agent_id: "a".into(),
+            subagent_type: SubAgentType::General,
+            task: "test".into(),
+            status: SubAgentStatus::Failed("timeout after 60s".into()),
+            created_at: 1000,
+            completed_at: Some(2000),
+            result: None,
+            tool_calls_made: 3,
+            iterations: 5,
+            token_usage: None,
+            depth: 1,
+            elapsed_ms: Some(1000),
+            current_tool: None,
+            truncated: false,
+        };
+        let row = SubAgentManager::build_db_row(&run);
+        // Must be "failed" not "failed(\"...\")"
+        assert_eq!(row.status, "failed");
+        // The error must be recoverable: it goes into result
+        assert_eq!(row.result, Some("timeout after 60s".to_string()));
+    }
+
+    #[test]
+    fn build_db_row_roundtrip_preserves_truncated_flag() {
+        // Medium: truncated must survive DB round-trip for the parent agent
+        // to trust the contract field after GC or restart.
+        let run = SubAgentRun {
+            run_id: "r-trunc".into(),
+            parent_session_id: "s1".into(),
+            parent_message_id: "m1".into(),
+            agent_id: "a".into(),
+            subagent_type: SubAgentType::Explore,
+            task: "test".into(),
+            status: SubAgentStatus::Completed,
+            created_at: 1000,
+            completed_at: Some(2000),
+            result: Some("result".into()),
+            tool_calls_made: 1,
+            iterations: 2,
+            token_usage: None,
+            depth: 1,
+            elapsed_ms: Some(500),
+            current_tool: None,
+            truncated: true,
+        };
+        let row = SubAgentManager::build_db_row(&run);
+        let restored: SubAgentRun = row.into();
+        assert!(restored.truncated, "truncated flag must survive DB round-trip");
+    }
+
+    #[test]
+    fn build_db_row_transcript_json_stores_path_not_content() {
+        // Medium: transcript_json stores a sidechain file path, not JSON transcript.
+        // The field comment in models.rs says "JSON-serialized sidechain transcript"
+        // but the implementation stores a path. This is intentional — the field name
+        // was inherited from the schema but semantics changed.
+        let run = SubAgentRun {
+            run_id: "r-path".into(),
+            parent_session_id: "s1".into(),
+            parent_message_id: "m1".into(),
+            agent_id: "a".into(),
+            subagent_type: SubAgentType::General,
+            task: "test".into(),
+            status: SubAgentStatus::Completed,
+            created_at: 1000,
+            completed_at: Some(2000),
+            result: None,
+            tool_calls_made: 0,
+            iterations: 0,
+            token_usage: None,
+            depth: 1,
+            elapsed_ms: None,
+            current_tool: None,
+            truncated: false,
+        };
+        let row = SubAgentManager::build_db_row(&run);
+        if let Some(ref val) = row.transcript_json {
+            assert!(
+                val.ends_with(".jsonl") || val.contains("sidechains/"),
+                "transcript_json should contain a sidechain file path, not JSON content: {val}"
+            );
+        }
+        // If the sidechain file doesn't exist yet (normal for fresh runs),
+        // transcript_json is None — this is also correct behavior.
     }
 }

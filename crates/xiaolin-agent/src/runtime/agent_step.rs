@@ -361,27 +361,34 @@ fn build_terminal_diagnosis(
     quality_diagnosis_code: Option<&str>,
     evidence: Option<DiagnosisEvidence>,
 ) -> TerminalDiagnosis {
-    let (end_reason, severity, user_message) = match reason {
-        TurnEndReason::Completed => (EndReason::Completed, None, None),
-        TurnEndReason::PlanApprovalPending => (EndReason::PlanApprovalPending, None, None),
-        TurnEndReason::Cancelled => (
+    // When quality diagnosis is "tool_loop", override Completed to ToolLoop
+    // so live turn_end events show the correct end_reason to the user.
+    let (end_reason, severity, user_message) = match (reason, quality_diagnosis_code) {
+        (TurnEndReason::Completed, Some("tool_loop")) => (
+            EndReason::ToolLoop,
+            Some(DiagnosisSeverity::Error),
+            Some("Turn stopped by runtime protection (tool loop or no progress).".to_string()),
+        ),
+        (TurnEndReason::Completed, _) => (EndReason::Completed, None, None),
+        (TurnEndReason::PlanApprovalPending, _) => (EndReason::PlanApprovalPending, None, None),
+        (TurnEndReason::Cancelled, _) => (
             EndReason::Cancelled,
             Some(DiagnosisSeverity::Info),
             Some("Turn was cancelled.".to_string()),
         ),
-        TurnEndReason::ContextLimit => (
+        (TurnEndReason::ContextLimit, _) => (
             EndReason::ContextLimit,
             Some(DiagnosisSeverity::Error),
             Some("Context window limit reached; turn stopped.".to_string()),
         ),
-        TurnEndReason::BudgetExceeded | TurnEndReason::TokenBudgetReached => (
+        (TurnEndReason::BudgetExceeded | TurnEndReason::TokenBudgetReached, _) => (
             EndReason::BudgetExceeded,
             Some(DiagnosisSeverity::Error),
             Some("Budget exceeded; turn stopped.".to_string()),
         ),
-        TurnEndReason::MaxTurns
+        (TurnEndReason::MaxTurns
         | TurnEndReason::ConsecutiveErrors
-        | TurnEndReason::DiminishingReturns => {
+        | TurnEndReason::DiminishingReturns, _) => {
             // These are tool-loop / no-progress style reasons.
             (
                 EndReason::ToolLoop,
@@ -389,7 +396,7 @@ fn build_terminal_diagnosis(
                 Some("Turn stopped by runtime protection (tool loop or no progress).".to_string()),
             )
         }
-        TurnEndReason::Error(_) => (
+        (TurnEndReason::Error(_), _) => (
             EndReason::Error,
             Some(DiagnosisSeverity::Error),
             Some("An unexpected error terminated the turn.".to_string()),
