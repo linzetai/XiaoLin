@@ -51,7 +51,7 @@ fn validate_path(path: &str, work_dir: &str) -> Result<PathBuf, String> {
         .canonicalize()
         .map_err(|_| "work directory unavailable".to_string())?;
 
-    if canonical_work == PathBuf::from("/") || canonical_work.parent().is_none() {
+    if canonical_work == Path::new("/") || canonical_work.parent().is_none() {
         return Err("work directory unavailable".into());
     }
 

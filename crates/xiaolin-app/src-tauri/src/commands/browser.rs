@@ -9,9 +9,40 @@ use crate::browser_panel::{
 use crate::browser_panel::browser_data_store_identifier;
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::utils::config::WebviewUrl;
+use serde::Deserialize;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, Wry};
 use uuid::Uuid;
 use xiaolin_tools_browser::{CONTENT_EXTRACT_JS, SELECTION_TOOLBAR_JS};
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserWebviewLayout {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    scale_factor: Option<f64>,
+}
+
+impl BrowserWebviewLayout {
+    fn validate(&self) -> Result<(), String> {
+        if !self.x.is_finite()
+            || !self.y.is_finite()
+            || !self.width.is_finite()
+            || !self.height.is_finite()
+        {
+            return Err("invalid layout coordinates".into());
+        }
+        if self.width < 0.0
+            || self.height < 0.0
+            || self.width > 10000.0
+            || self.height > 10000.0
+        {
+            return Err("invalid layout size".into());
+        }
+        Ok(())
+    }
+}
+
 
 fn with_manager<T>(
     state: &State<'_, BrowserPanelState>,
@@ -221,7 +252,7 @@ fn build_browser_webview(
                 let download_dir = default_download_directory();
                 let filename = url
                     .path_segments()
-                    .and_then(|segments| segments.last())
+                    .and_then(|mut segments| segments.next_back())
                     .map(sanitize_download_filename)
                     .filter(|name| !name.is_empty())
                     .unwrap_or_else(|| "download".to_string());
@@ -614,25 +645,16 @@ pub async fn browser_resize_webview(
     app: AppHandle,
     state: State<'_, BrowserPanelState>,
     page_id: String,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-    scale_factor: Option<f64>,
+    layout: BrowserWebviewLayout,
 ) -> Result<(), String> {
     validate_page_id(&page_id)?;
-    if !x.is_finite() || !y.is_finite() || !width.is_finite() || !height.is_finite() {
-        return Err("invalid layout coordinates".into());
-    }
-    if width < 0.0 || height < 0.0 || width > 10000.0 || height > 10000.0 {
-        return Err("invalid layout size".into());
-    }
+    layout.validate()?;
 
     let (page_snapshot, sf) = with_manager(&state, |manager| {
-        if let Some(sf) = scale_factor {
+        if let Some(sf) = layout.scale_factor {
             manager.set_gtk_scale_factor(sf);
         }
-        manager.update_layout(&page_id, x, y, width, height)?;
+        manager.update_layout(&page_id, layout.x, layout.y, layout.width, layout.height)?;
         let page = manager
             .get_page(&page_id)
             .cloned()

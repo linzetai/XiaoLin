@@ -729,7 +729,10 @@ export async function browserResizeWebview(
 ): Promise<void> {
   if (!isTauri) return;
   try {
-    await browserInvoke("browser_resize_webview", { pageId, x, y, width, height, scaleFactor });
+    await browserInvoke("browser_resize_webview", {
+      pageId,
+      layout: { x, y, width, height, scaleFactor },
+    });
   } catch (e) {
     console.warn("[browser] resize failed:", e);
   }

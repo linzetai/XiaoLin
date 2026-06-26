@@ -21,8 +21,8 @@ use gtk::glib::object::ObjectExt;
 use crate::browser_network::WebviewProxySetting;
 
 thread_local! {
-    static FIXED: RefCell<Option<gtk::Fixed>> = RefCell::new(None);
-    static MAIN_WV: RefCell<Option<gtk::Widget>> = RefCell::new(None);
+    static FIXED: RefCell<Option<gtk::Fixed>> = const { RefCell::new(None) };
+    static MAIN_WV: RefCell<Option<gtk::Widget>> = const { RefCell::new(None) };
     static CHILD_WIDGETS: RefCell<HashMap<String, gtk::Widget>> = RefCell::new(HashMap::new());
 }
 

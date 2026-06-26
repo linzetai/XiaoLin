@@ -483,8 +483,10 @@ mod tests {
 
     #[test]
     fn webview_proxy_setting_modes() {
-        let mut cfg = BrowserNetworkConfig::default();
-        cfg.proxy_mode = BrowserProxyMode::None;
+        let mut cfg = BrowserNetworkConfig {
+            proxy_mode: BrowserProxyMode::None,
+            ..Default::default()
+        };
         assert_eq!(
             webview_proxy_setting(&cfg, "http://127.0.0.1:1"),
             WebviewProxySetting::Direct
