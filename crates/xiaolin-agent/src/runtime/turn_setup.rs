@@ -358,7 +358,7 @@ pub(crate) async fn setup_turn(
         mode_turn_counted: false,
     };
 
-    let turn_services = TurnServices {
+    let mut turn_services = TurnServices {
         runtime,
         turn_id,
         stream_start,
@@ -396,13 +396,35 @@ pub(crate) async fn setup_turn(
         services,
         dispatcher,
         tool_storage,
-        tool_output_store: None,
+        tool_output_store: None, // Initialized below if session_store available
         skip_tool_names,
         validation_pipeline,
         runtime_observer,
         message_queue: ctx.message_queue.clone(),
         cancel_token,
     };
+
+    // Phase 2: Wire up ToolOutputAssetStore if we have a session store with a pool.
+    // The asset store uses the same SQLite pool as the session store, ensuring
+    // transactional consistency and session-scoped access control.
+    if let (Some(ref store), Some(ref sid)) = (session_store, request.session_id.as_deref()) {
+        match xiaolin_session::tool_output_store::ToolOutputAssetStore::open(store.pool()).await {
+            Ok(asset_store) => {
+                turn_services.tool_output_store = Some(std::sync::Arc::new(asset_store));
+                tracing::info!(
+                    session_id = sid,
+                    "ToolOutputAssetStore wired for session"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    session_id = sid,
+                    "Failed to open ToolOutputAssetStore; using legacy ToolResultStorage"
+                );
+            }
+        }
+    }
 
     Ok((mutable_state, turn_services))
 }

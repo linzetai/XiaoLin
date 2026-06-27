@@ -664,11 +664,14 @@ pub(crate) async fn execute_tool_round(
         let processed = process_tool_output(
             &svc.tool_storage,
             svc.tool_output_store.as_ref(),
+            svc.session_id.as_deref(),
+            svc.turn_id.as_str(),
             &tool_name,
             &call_id,
-            &tool_output_with_validation,
+            tool_output_with_validation.clone(),
             max_chars,
-        );
+        )
+        .await;
         let header = semantic_header(
             &tool_name,
             &arguments,

@@ -20,6 +20,15 @@ pub const TOOL_RESULT_CLEARED_MESSAGE: &str = "[Old tool result content cleared]
 
 const TOOL_RESULTS_SUBDIR: &str = "tool-results";
 
+/// Compute the session directory path (used by ToolOutputAssetStore for storage_root).
+pub fn session_dir(session_id: &str) -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".xiaolin")
+        .join("sessions")
+        .join(session_id)
+}
+
 /// Resolve the effective persistence threshold for a tool.
 ///
 /// - `usize::MAX` = hard opt-out (reserved for tools where persistence
@@ -179,7 +188,7 @@ pub fn build_handle_replacement_message(
 "
     };
     format!(
-        "{OUTPUT_HANDLE_TAG}\n         Output too large ({size}, class={size_class}). Stored with handle: {handle}\n         Use output_read, output_search, output_tail, or output_summary with this handle          to retrieve the full content.\n\n         Preview (first {preview_size}):\n         {preview}{trail}         {OUTPUT_HANDLE_CLOSING_TAG}",
+        "{OUTPUT_HANDLE_TAG}\n         Output too large ({size}, class={size_class}). Stored with handle: {handle}\n         Use the full output stored on disk with this handle. Recovery tools will be available in a future update.\n\n         Preview (first {preview_size}):\n         {preview}{trail}         {OUTPUT_HANDLE_CLOSING_TAG}",
         handle = handle,
         preview = preview,
         preview_size = format_file_size(PREVIEW_SIZE_BYTES),
@@ -1141,10 +1150,7 @@ mod tests {
         assert!(msg.contains("hello world"));
         assert!(msg.contains("..."));
         assert!(msg.ends_with(OUTPUT_HANDLE_CLOSING_TAG));
-        assert!(msg.contains("output_read"));
-        assert!(msg.contains("output_search"));
-        assert!(msg.contains("output_tail"));
-        assert!(msg.contains("output_summary"));
+        assert!(msg.contains("Recovery tools"));
     }
 
     #[test]

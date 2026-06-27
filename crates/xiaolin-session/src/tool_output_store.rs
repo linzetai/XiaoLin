@@ -113,8 +113,13 @@ pub struct ToolOutputHandle {
 impl ToolOutputHandle {
     /// Create a new handle for the given session.
     pub fn new(session_id: &str) -> Self {
-        // Use first 8 chars of session id for quick validation prefix
-        let prefix = &session_id[..session_id.len().min(8)];
+        // Use SHA-256 hex digest of session_id for a filesystem-safe prefix.
+        // Raw session ids may contain path-significant characters (/ \ ..).
+        // Hex chars are always safe for filenames.
+        let mut hasher = Sha256::new();
+        hasher.update(session_id.as_bytes());
+        let hash = format!("{:x}", hasher.finalize());
+        let prefix = &hash[..8];
         let uuid = Uuid::new_v4().to_string().replace('-', "");
         Self {
             id: format!("out_{prefix}_{uuid}"),
@@ -875,6 +880,10 @@ impl ToolOutputAssetStore {
         })?;
 
         let blob_path = Self::blob_path(&input.storage_root, handle_str);
+        // Track created files for cleanup on error (atomicity guarantee: if any
+        // step after blob write fails, orphan files are removed).
+        let mut created_files: Vec<std::path::PathBuf> = Vec::new();
+
         // Use create_new to enforce no-overwrite
         let mut file = tokio::fs::OpenOptions::new()
             .write(true)
@@ -897,6 +906,7 @@ impl ToolOutputAssetStore {
             )
         })?;
         drop(file);
+        created_files.push(blob_path.clone());
 
         // 2. Build and persist indexes
         let index_dir = Self::index_dir(&input.storage_root);
@@ -926,6 +936,7 @@ impl ToolOutputAssetStore {
                     ),
                 )
             })?;
+        created_files.push(line_idx_path.clone());
 
         let chunk_idx = ChunkIndex::build(&input.output, DEFAULT_BLOB_PAGE_SIZE);
         let chunk_idx_path = Self::chunk_index_path(&input.storage_root, handle_str);
@@ -943,8 +954,9 @@ impl ToolOutputAssetStore {
                     ),
                 )
             })?;
+        created_files.push(chunk_idx_path.clone());
 
-        // 3. Insert metadata row
+        // 3. Insert metadata row (if this fails, clean up created files)
         sqlx::query(
             "INSERT INTO tool_output_assets (
                 handle, session_id, turn_id, tool_call_id, tool_name,
@@ -979,7 +991,13 @@ impl ToolOutputAssetStore {
         .bind(&now)
         .execute(&self.pool)
         .await
-        .map_err(|e| RecallError::internal(handle_str, &format!("Failed to insert asset: {e}")))?;
+        .map_err(|e| {
+            // Clean up orphan files on failed metadata insert
+            for path in &created_files {
+                let _ = std::fs::remove_file(path);
+            }
+            RecallError::internal(handle_str, &format!("Failed to insert asset: {e}"))
+        })?;
 
         tracing::debug!(
             handle = handle_str,

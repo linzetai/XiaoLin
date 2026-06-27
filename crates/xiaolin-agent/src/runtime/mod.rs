@@ -280,37 +280,71 @@ fn classify_stream_error_code(message: &str) -> Option<ErrorCode> {
 /// created as handle-backed assets before any truncation occurs. Small outputs
 /// remain inline as before.
 #[allow(deprecated)]
-fn process_tool_output(
+async fn process_tool_output(
     storage: &ToolResultStorage,
     tool_output_store: Option<&std::sync::Arc<ToolOutputAssetStore>>,
+    session_id: Option<&str>,
+    turn_id: &str,
     tool_name: &str,
     call_id: &str,
-    output: &str,
+    output: String,
     max_result_size_chars: usize,
 ) -> String {
+    use xiaolin_session::tool_output_store::CreateAssetInput;
+
     let threshold = tool_result_storage::get_persistence_threshold(max_result_size_chars);
     let is_large = output.len() > threshold;
 
-    // Phase 2+: try handle-based asset store first for large outputs
+    // Phase 2: route large outputs through the handle-based asset store.
     if is_large {
-        if let Some(_) = tool_output_store {
-            // TODO(phase2): wire up session_id, turn_id, storage_root from TurnServices
-            // For now, fall back to ToolResultStorage path
-            tracing::debug!(
-                tool = tool_name,
-                size = output.len(),
-                "ToolOutputAssetStore available but not fully wired; using legacy path"
-            );
+        if let (Some(store), Some(sid)) = (tool_output_store, session_id) {
+            let storage_root = tool_result_storage::session_dir(sid);
+            let input = CreateAssetInput {
+                session_id: sid.to_string(),
+                turn_id: turn_id.to_string(),
+                tool_call_id: call_id.to_string(),
+                tool_name: tool_name.to_string(),
+                arguments: String::new(),
+                success: true,
+                output: output.clone(),
+                storage_root,
+                size_config: Default::default(),
+            };
+            match store.create_asset(input).await {
+                Ok(handle) => {
+                    let (preview, has_more) =
+                        tool_result_storage::generate_preview(&output, tool_result_storage::PREVIEW_SIZE_BYTES);
+                    let msg = tool_result_storage::build_handle_replacement_message(
+                        handle.as_str(),
+                        tool_name,
+                        output.len(),
+                        &preview,
+                        has_more,
+                        "large",
+                    );
+                    tracing::info!(
+                        handle = handle.as_str(),
+                        tool = tool_name,
+                        bytes = output.len(),
+                        "ToolOutputAssetStore: created handle-backed asset"
+                    );
+                    return msg;
+                }
+                Err(e) => {
+                    tracing::warn!(error = ?e, tool = tool_name, "ToolOutputAssetStore::create_asset failed, falling back to legacy");
+                }
+            }
         }
     }
 
-    match storage.process_result(tool_name, call_id, output, threshold) {
+    // Fallback: legacy ToolResultStorage path
+    match storage.process_result(tool_name, call_id, &output, threshold) {
         Ok(Some(replacement)) => replacement,
-        Ok(None) => output.to_string(),
+        Ok(None) => output,
         Err(e) => {
             tracing::warn!(error = %e, tool = tool_name, "ToolResultStorage failed, falling back to truncation");
             truncate_tool_result_output_with_limit(
-                output,
+                &output,
                 tool_name,
                 "",
                 Some(max_result_size_chars),
