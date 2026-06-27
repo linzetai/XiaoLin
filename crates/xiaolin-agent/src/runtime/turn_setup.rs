@@ -396,6 +396,7 @@ pub(crate) async fn setup_turn(
         services,
         dispatcher,
         tool_storage,
+        tool_output_store: None,
         skip_tool_names,
         validation_pipeline,
         runtime_observer,

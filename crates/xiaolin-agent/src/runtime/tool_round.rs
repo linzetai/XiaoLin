@@ -663,6 +663,7 @@ pub(crate) async fn execute_tool_round(
         };
         let processed = process_tool_output(
             &svc.tool_storage,
+            svc.tool_output_store.as_ref(),
             &tool_name,
             &call_id,
             &tool_output_with_validation,

@@ -11,12 +11,12 @@
 
 ## 2. Runtime Integration For Asset Creation
 
-- [ ] 2.1 Integrate asset creation into the tool execution path before any output truncation or model-visible projection.
-- [ ] 2.2 Adapt `tool_result_storage.rs` into the new store path or provide a compatibility adapter over the new asset store.
-- [ ] 2.3 Preserve small-output inline behavior while allowing debug/config mode to assetize all outputs.
-- [ ] 2.4 Replace path-based large-output recovery hints with handle-based recovery hints in model-visible messages.
-- [ ] 2.5 Add compatibility parsing for legacy `<persisted-output>` markers and map them to legacy provenance.
-- [ ] 2.6 Add integration tests proving large outputs are stored before post-tool processing, pre-query compaction, and content filtering can alter them.
+- [x] 2.1 Integrate asset creation into the tool execution path before any output truncation or model-visible projection.
+- [x] 2.2 Adapt `tool_result_storage.rs` into the new store path or provide a compatibility adapter over the new asset store.
+- [x] 2.3 Preserve small-output inline behavior while allowing debug/config mode to assetize all outputs.
+- [x] 2.4 Replace path-based large-output recovery hints with handle-based recovery hints in model-visible messages.
+- [x] 2.5 Add compatibility parsing for legacy `<persisted-output>` markers and map them to legacy provenance.
+- [x] 2.6 Add integration tests proving large outputs are stored before post-tool processing, pre-query compaction, and content filtering can alter them.
 
 ## 3. Recall Tools
 

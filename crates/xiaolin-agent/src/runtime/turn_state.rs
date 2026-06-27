@@ -30,6 +30,7 @@ use super::validation_pipeline::ValidationPipeline;
 use super::AgentRuntime;
 use crate::builtin_tools::{ExecutionModeState, GoalStore, TodoStore};
 use crate::message_queue::MessageQueue;
+use xiaolin_session::tool_output_store::ToolOutputAssetStore;
 
 /// Mutable state that evolves across iterations of the agent loop.
 ///
@@ -128,6 +129,8 @@ pub(crate) struct TurnServices {
     pub services: RuntimeServices,
     pub dispatcher: ToolDispatcher,
     pub tool_storage: ToolResultStorage,
+    /// Optional asset store for handle-based output persistence (Phase 2+).
+    pub tool_output_store: Option<Arc<ToolOutputAssetStore>>,
     pub skip_tool_names: HashSet<String>,
     pub validation_pipeline: ValidationPipeline,
     pub runtime_observer: RuntimeObserver,

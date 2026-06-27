@@ -13,6 +13,8 @@ pub const PREVIEW_SIZE_BYTES: usize = 2000;
 
 pub const PERSISTED_OUTPUT_TAG: &str = "<persisted-output>";
 pub const PERSISTED_OUTPUT_CLOSING_TAG: &str = "</persisted-output>";
+pub const OUTPUT_HANDLE_TAG: &str = "<output-handle>";
+pub const OUTPUT_HANDLE_CLOSING_TAG: &str = "</output-handle>";
 
 pub const TOOL_RESULT_CLEARED_MESSAGE: &str = "[Old tool result content cleared]";
 
@@ -72,7 +74,7 @@ impl ToolResultStorage {
             return Ok(Some(format!("({tool_name} completed with no output)")));
         }
 
-        if content.starts_with(PERSISTED_OUTPUT_TAG) {
+        if content.starts_with(PERSISTED_OUTPUT_TAG) || content.starts_with(OUTPUT_HANDLE_TAG) {
             return Ok(None);
         }
 
@@ -158,6 +160,80 @@ pub fn build_large_tool_result_message(result: &PersistedToolResult) -> String {
 }
 
 /// Generate a preview of content, truncating at a newline boundary when possible.
+pub fn build_handle_replacement_message(
+    handle: &str,
+    tool_name: &str,
+    original_size: usize,
+    preview: &str,
+    has_more: bool,
+    size_class: &str,
+) -> String {
+    let _ = tool_name; // reserved for future per-tool customization
+    let size = format_file_size(original_size);
+    let trail = if has_more {
+        "
+...
+"
+    } else {
+        "
+"
+    };
+    format!(
+        "{OUTPUT_HANDLE_TAG}\n         Output too large ({size}, class={size_class}). Stored with handle: {handle}\n         Use output_read, output_search, output_tail, or output_summary with this handle          to retrieve the full content.\n\n         Preview (first {preview_size}):\n         {preview}{trail}         {OUTPUT_HANDLE_CLOSING_TAG}",
+        handle = handle,
+        preview = preview,
+        preview_size = format_file_size(PREVIEW_SIZE_BYTES),
+    )
+}
+
+/// Check whether content is already wrapped in a legacy persisted-output marker.
+pub fn is_legacy_persisted_output(content: &str) -> bool {
+    content.starts_with(PERSISTED_OUTPUT_TAG) && !content.starts_with(OUTPUT_HANDLE_TAG)
+}
+
+/// Check whether content is already wrapped in a handle-based marker.
+pub fn is_handle_based_output(content: &str) -> bool {
+    content.starts_with(OUTPUT_HANDLE_TAG)
+}
+
+/// Parse a legacy persisted-output marker to extract its preview content
+/// and path, returning a compatibility summary.
+pub fn parse_legacy_persisted_output(content: &str) -> Option<LegacyPersistedInfo> {
+    if !is_legacy_persisted_output(content) {
+        return None;
+    }
+    let path = content
+        .lines()
+        .find(|l| l.contains("Full output saved to:"))
+        .and_then(|l| l.split("Full output saved to:").nth(1))
+        .map(|s| s.trim().to_string());
+
+    let size_str = content
+        .lines()
+        .find(|l| l.contains("Output too large"))
+        .and_then(|l| {
+            let start = l.find('(')?;
+            let end = l.rfind(')')?;
+            if start < end {
+                Some(l[start + 1..end].to_string())
+            } else {
+                None
+            }
+        });
+
+    Some(LegacyPersistedInfo {
+        file_path: path,
+        size_summary: size_str,
+    })
+}
+
+/// Information extracted from a legacy persisted-output marker.
+#[derive(Debug, Clone)]
+pub struct LegacyPersistedInfo {
+    pub file_path: Option<String>,
+    pub size_summary: Option<String>,
+}
+
 pub fn generate_preview(content: &str, max_bytes: usize) -> (String, bool) {
     if content.len() <= max_bytes {
         return (content.to_string(), false);
@@ -322,7 +398,10 @@ impl ToolResultStorage {
     ) -> BudgetEnforcementResult {
         let candidates: Vec<ToolResultCandidate> = entries
             .into_iter()
-            .filter(|e| !e.content.starts_with(PERSISTED_OUTPUT_TAG))
+            .filter(|e| {
+                !e.content.starts_with(PERSISTED_OUTPUT_TAG)
+                    && !e.content.starts_with(OUTPUT_HANDLE_TAG)
+            })
             .map(|e| {
                 let size = e.content.len();
                 ToolResultCandidate {
@@ -1042,5 +1121,128 @@ mod tests {
             path,
             PathBuf::from("/home/user/.xiaolin/sessions/sid123/tool-results/call_456.txt")
         );
+    }
+
+    // ── New handle-based output tests (Phase 2) ──
+
+    #[test]
+    fn build_handle_replacement_message_with_more() {
+        let msg = build_handle_replacement_message(
+            "out_abc_123",
+            "shell_exec",
+            60_000,
+            "hello world",
+            true,
+            "large",
+        );
+        assert!(msg.starts_with(OUTPUT_HANDLE_TAG));
+        assert!(msg.contains("out_abc_123"));
+        assert!(msg.contains("large"));
+        assert!(msg.contains("hello world"));
+        assert!(msg.contains("..."));
+        assert!(msg.ends_with(OUTPUT_HANDLE_CLOSING_TAG));
+        assert!(msg.contains("output_read"));
+        assert!(msg.contains("output_search"));
+        assert!(msg.contains("output_tail"));
+        assert!(msg.contains("output_summary"));
+    }
+
+    #[test]
+    fn build_handle_replacement_message_no_more() {
+        let msg = build_handle_replacement_message(
+            "out_xyz_456",
+            "read_file",
+            100,
+            "tiny",
+            false,
+            "small",
+        );
+        assert!(msg.starts_with(OUTPUT_HANDLE_TAG));
+        assert!(!msg.contains("..."));
+        assert!(msg.contains("tiny"));
+    }
+
+    #[test]
+    fn is_legacy_persisted_output_true() {
+        let content = format!(
+            "{PERSISTED_OUTPUT_TAG}\nOutput too large (58.6 KB). Full output saved to: /tmp/x.txt\n{PERSISTED_OUTPUT_CLOSING_TAG}"
+        );
+        assert!(is_legacy_persisted_output(&content));
+    }
+
+    #[test]
+    fn is_legacy_persisted_output_false_for_handle() {
+        let content = format!(
+            "{OUTPUT_HANDLE_TAG}\nOutput too large (58.6 KB, class=large). Stored with handle: out_abc\n{OUTPUT_HANDLE_CLOSING_TAG}"
+        );
+        assert!(!is_legacy_persisted_output(&content));
+    }
+
+    #[test]
+    fn is_legacy_persisted_output_false_for_plain() {
+        assert!(!is_legacy_persisted_output("hello world"));
+    }
+
+    #[test]
+    fn is_handle_based_output_true() {
+        let content = format!("{OUTPUT_HANDLE_TAG}\nsome preview\n{OUTPUT_HANDLE_CLOSING_TAG}");
+        assert!(is_handle_based_output(&content));
+    }
+
+    #[test]
+    fn is_handle_based_output_false_for_legacy() {
+        let content = format!(
+            "{PERSISTED_OUTPUT_TAG}\nOutput too large (58.6 KB)\n{PERSISTED_OUTPUT_CLOSING_TAG}"
+        );
+        assert!(!is_handle_based_output(&content));
+    }
+
+    #[test]
+    fn is_handle_based_output_false_for_plain() {
+        assert!(!is_handle_based_output("plain text"));
+    }
+
+    #[test]
+    fn parse_legacy_persisted_output_extracts_path() {
+        let content = format!(
+            "{PERSISTED_OUTPUT_TAG}\n             Output too large (58.6 KB). Full output saved to: /tmp/tool-results/call_123.txt\n\n             Preview (first 2.0 KB):\n             some preview text\n             {PERSISTED_OUTPUT_CLOSING_TAG}"
+        );
+        let info = parse_legacy_persisted_output(&content);
+        assert!(info.is_some());
+        let info = info.unwrap();
+        assert_eq!(
+            info.file_path,
+            Some("/tmp/tool-results/call_123.txt".to_string())
+        );
+        assert_eq!(info.size_summary, Some("58.6 KB".to_string()));
+    }
+
+    #[test]
+    fn parse_legacy_persisted_output_returns_none_for_handle() {
+        let content = format!("{OUTPUT_HANDLE_TAG}\npreview\n{OUTPUT_HANDLE_CLOSING_TAG}");
+        assert!(parse_legacy_persisted_output(&content).is_none());
+    }
+
+    #[test]
+    fn parse_legacy_persisted_output_returns_none_for_plain() {
+        assert!(parse_legacy_persisted_output("regular content").is_none());
+    }
+
+    #[test]
+    fn enforce_budget_skips_handle_based_content() {
+        let (storage, _tmp) = make_storage();
+        let mut state = ContentReplacementState::new();
+        let handle_content = format!(
+            "{OUTPUT_HANDLE_TAG}\nOutput too large (58.6 KB, class=large). Stored with handle: out_abc\n{OUTPUT_HANDLE_CLOSING_TAG}"
+        );
+        let entries = vec![ToolResultEntry {
+            tool_use_id: "h1".into(),
+            tool_name: "shell".into(),
+            content: handle_content,
+        }];
+        let result =
+            storage.enforce_per_message_budget(entries, &mut state, &HashSet::new(), 100_000);
+        assert!(result.newly_replaced.is_empty());
+        assert!(result.replacements.is_empty());
     }
 }

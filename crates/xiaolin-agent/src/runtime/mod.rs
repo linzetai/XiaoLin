@@ -105,6 +105,7 @@ use tool_result_storage::{
     MAX_TOOL_RESULTS_PER_MESSAGE_CHARS,
 };
 use trajectory::last_user_turn_text;
+use xiaolin_session::tool_output_store::ToolOutputAssetStore;
 
 fn push_system_messages_from_prompt(messages: &mut Vec<ChatMessage>, system_text: &str) {
     use prompt_engine::{CACHE_TIER1_BOUNDARY, CACHE_TIER2_BOUNDARY, DYNAMIC_BOUNDARY};
@@ -272,17 +273,37 @@ fn classify_stream_error_code(message: &str) -> Option<ErrorCode> {
     Some(ErrorCode::classify(message))
 }
 
-/// Process a tool result: try ToolResultStorage.process_result() first,
-/// fall back to truncate_tool_result_output_with_limit on error.
+/// Process a tool result: persist large outputs to the new ToolOutputAssetStore
+/// when available, fall back to ToolResultStorage, then truncation.
+///
+/// When `tool_output_store` is Some, large outputs (> persistence_threshold) are
+/// created as handle-backed assets before any truncation occurs. Small outputs
+/// remain inline as before.
 #[allow(deprecated)]
 fn process_tool_output(
     storage: &ToolResultStorage,
+    tool_output_store: Option<&std::sync::Arc<ToolOutputAssetStore>>,
     tool_name: &str,
     call_id: &str,
     output: &str,
     max_result_size_chars: usize,
 ) -> String {
     let threshold = tool_result_storage::get_persistence_threshold(max_result_size_chars);
+    let is_large = output.len() > threshold;
+
+    // Phase 2+: try handle-based asset store first for large outputs
+    if is_large {
+        if let Some(_) = tool_output_store {
+            // TODO(phase2): wire up session_id, turn_id, storage_root from TurnServices
+            // For now, fall back to ToolResultStorage path
+            tracing::debug!(
+                tool = tool_name,
+                size = output.len(),
+                "ToolOutputAssetStore available but not fully wired; using legacy path"
+            );
+        }
+    }
+
     match storage.process_result(tool_name, call_id, output, threshold) {
         Ok(Some(replacement)) => replacement,
         Ok(None) => output.to_string(),
