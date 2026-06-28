@@ -360,6 +360,22 @@ async fn process_tool_output(
             };
             match store.create_asset(input).await {
                 Ok(handle) => {
+                    // Record Phase 8.1 metrics: asset creation
+                    {
+                        let sc = xiaolin_session::tool_output_store::OutputSizeClass::classify(
+                            output.len(),
+                            output.lines().count(),
+                            output.len() / 4,
+                            &xiaolin_session::tool_output_store::ProjectionSizeConfig::default(),
+                        );
+                        let sc_str = match sc {
+                            xiaolin_session::tool_output_store::OutputSizeClass::Small => "small",
+                            xiaolin_session::tool_output_store::OutputSizeClass::Medium => "medium",
+                            xiaolin_session::tool_output_store::OutputSizeClass::Large => "large",
+                        };
+                        xiaolin_observe::record_output_asset_created(tool_name, sc_str);
+                        xiaolin_observe::record_output_asset_raw_bytes(tool_name, output.len() as u64);
+                    }
                     // Use the projector registry to produce a typed projection
                     let msg = match store.get_asset(handle.as_str(), sid).await {
                         Ok(asset) => {

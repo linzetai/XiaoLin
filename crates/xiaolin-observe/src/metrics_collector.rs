@@ -138,6 +138,60 @@ impl MetricsCollector {
         format!("error|{}", escape_label_value(error_type))
     }
 
+    fn asset_creation_counter_key(
+        tool_name: &str,
+        size_class: &str,
+    ) -> String {
+        format!(
+            "output_asset_created|{}|{}",
+            escape_label_value(tool_name),
+            escape_label_value(size_class)
+        )
+    }
+
+    fn asset_raw_bytes_counter_key(tool_name: &str) -> String {
+        format!("output_asset_raw_bytes|{}", escape_label_value(tool_name))
+    }
+
+    fn asset_projected_tokens_counter_key(tool_name: &str) -> String {
+        format!(
+            "output_asset_projected_tokens|{}",
+            escape_label_value(tool_name)
+        )
+    }
+
+    fn asset_tokens_saved_counter_key(tool_name: &str) -> String {
+        format!(
+            "output_asset_tokens_saved|{}",
+            escape_label_value(tool_name)
+        )
+    }
+
+    fn recall_tool_counter_key(
+        recall_tool: &str,
+        status: &str,
+    ) -> String {
+        format!(
+            "output_recall|{}|{}",
+            escape_label_value(recall_tool),
+            escape_label_value(status)
+        )
+    }
+
+    fn recall_tokens_counter_key(recall_tool: &str) -> String {
+        format!(
+            "output_recall_tokens|{}",
+            escape_label_value(recall_tool)
+        )
+    }
+
+    fn recall_latency_key(recall_tool: &str) -> String {
+        format!(
+            "output_recall_latency|{}",
+            escape_label_value(recall_tool)
+        )
+    }
+
     fn token_counter_key(model: &str) -> String {
         format!("tokens|{}", escape_label_value(model))
     }
@@ -214,6 +268,74 @@ impl MetricsCollector {
         if let Some(entry) = self.try_counter_entry(key) {
             entry.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    // ── Output asset metrics (Phase 8.1) ──
+
+    /// Record the creation of a tool output asset with its size class.
+    /// `size_class`: "small", "medium", "large"
+    pub fn record_output_asset_created(&self, tool_name: &str, size_class: &str) {
+        let key = Self::asset_creation_counter_key(tool_name, size_class);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Accumulate raw bytes of tool output assets created.
+    pub fn record_output_asset_raw_bytes(&self, tool_name: &str, bytes: u64) {
+        let key = Self::asset_raw_bytes_counter_key(tool_name);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(bytes, Ordering::Relaxed);
+        }
+    }
+
+    /// Accumulate projected token estimates for asset-backed outputs.
+    pub fn record_output_asset_projected_tokens(&self, tool_name: &str, tokens: u64) {
+        let key = Self::asset_projected_tokens_counter_key(tool_name);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(tokens, Ordering::Relaxed);
+        }
+    }
+
+    /// Accumulate tokens saved via output projection.
+    pub fn record_output_asset_tokens_saved(&self, tool_name: &str, tokens: u64) {
+        let key = Self::asset_tokens_saved_counter_key(tool_name);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(tokens, Ordering::Relaxed);
+        }
+    }
+
+    // ── Recall tool metrics (Phase 8.2) ──
+
+    /// Record a recall tool invocation.
+    /// `recall_tool`: "output_read", "output_search", "output_tail", "output_summary"
+    /// `status`: "success", "not_found", "expired", "unauthorized", "invalid_range"
+    pub fn record_output_recall(&self, recall_tool: &str, status: &str) {
+        let key = Self::recall_tool_counter_key(recall_tool, status);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Accumulate tokens returned by recall tools.
+    pub fn record_output_recall_tokens(&self, recall_tool: &str, tokens: u64) {
+        let key = Self::recall_tokens_counter_key(recall_tool);
+        if let Some(entry) = self.try_counter_entry(key) {
+            entry.fetch_add(tokens, Ordering::Relaxed);
+        }
+    }
+
+    /// Record recall tool latency in milliseconds.
+    pub fn record_output_recall_latency_ms(&self, recall_tool: &str, ms: f64) {
+        let key = Self::recall_latency_key(recall_tool);
+        let Some(entry) = self.try_histogram_entry(key) else {
+            return;
+        };
+        let mut vec = match entry.lock() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+        push_histogram_sample(&mut vec, ms);
     }
 
     pub fn record_tokens(&self, model: &str, tokens: u64) {
@@ -484,6 +606,154 @@ impl MetricsCollector {
                 &mut out,
                 "xiaolin_provider_latency_ms_count{{provider=\"{}\",model=\"{}\"}} {}",
                 parts[0], parts[1], count
+            );
+        }
+
+        // ── Output asset metrics (Phase 8.1) ──
+        out.push_str(
+            "# HELP xiaolin_output_assets_created_total Tool output assets created by tool and size class\n",
+        );
+        out.push_str("# TYPE xiaolin_output_assets_created_total counter\n");
+        for e in self.counters.iter() {
+            let key = e.key();
+            if let Some(rest) = key.strip_prefix("output_asset_created|") {
+                let parts: Vec<&str> = rest.splitn(2, '|').collect();
+                if parts.len() == 2 {
+                    let _ = writeln!(
+                        &mut out,
+                        "xiaolin_output_assets_created_total{{tool=\"{}\",size_class=\"{}\"}} {}",
+                        parts[0], parts[1],
+                        e.value().load(Ordering::Relaxed)
+                    );
+                }
+            }
+        }
+
+        out.push_str(
+            "# HELP xiaolin_output_asset_raw_bytes_total Raw bytes of tool output assets by tool\n",
+        );
+        out.push_str("# TYPE xiaolin_output_asset_raw_bytes_total counter\n");
+        for e in self.counters.iter() {
+            let key = e.key();
+            if let Some(tool) = key.strip_prefix("output_asset_raw_bytes|") {
+                let _ = writeln!(
+                    &mut out,
+                    "xiaolin_output_asset_raw_bytes_total{{tool=\"{}\"}} {}",
+                    tool,
+                    e.value().load(Ordering::Relaxed)
+                );
+            }
+        }
+
+        out.push_str(
+            "# HELP xiaolin_output_asset_projected_tokens_total Projected token estimates by tool\n",
+        );
+        out.push_str("# TYPE xiaolin_output_asset_projected_tokens_total counter\n");
+        for e in self.counters.iter() {
+            let key = e.key();
+            if let Some(tool) = key.strip_prefix("output_asset_projected_tokens|") {
+                let _ = writeln!(
+                    &mut out,
+                    "xiaolin_output_asset_projected_tokens_total{{tool=\"{}\"}} {}",
+                    tool,
+                    e.value().load(Ordering::Relaxed)
+                );
+            }
+        }
+
+        out.push_str(
+            "# HELP xiaolin_output_asset_tokens_saved_total Tokens saved by projection by tool\n",
+        );
+        out.push_str("# TYPE xiaolin_output_asset_tokens_saved_total counter\n");
+        for e in self.counters.iter() {
+            let key = e.key();
+            if let Some(tool) = key.strip_prefix("output_asset_tokens_saved|") {
+                let _ = writeln!(
+                    &mut out,
+                    "xiaolin_output_asset_tokens_saved_total{{tool=\"{}\"}} {}",
+                    tool,
+                    e.value().load(Ordering::Relaxed)
+                );
+            }
+        }
+
+        // ── Recall tool metrics (Phase 8.2) ──
+        out.push_str(
+            "# HELP xiaolin_output_recall_total Recall tool invocations by tool and status\n",
+        );
+        out.push_str("# TYPE xiaolin_output_recall_total counter\n");
+        for e in self.counters.iter() {
+            let key = e.key();
+            if let Some(rest) = key.strip_prefix("output_recall|") {
+                let parts: Vec<&str> = rest.splitn(2, '|').collect();
+                if parts.len() == 2 {
+                    let _ = writeln!(
+                        &mut out,
+                        "xiaolin_output_recall_total{{tool=\"{}\",status=\"{}\"}} {}",
+                        parts[0], parts[1],
+                        e.value().load(Ordering::Relaxed)
+                    );
+                }
+            }
+        }
+
+        out.push_str(
+            "# HELP xiaolin_output_recall_tokens_total Tokens returned by recall tools\n",
+        );
+        out.push_str("# TYPE xiaolin_output_recall_tokens_total counter\n");
+        for e in self.counters.iter() {
+            let key = e.key();
+            if let Some(tool) = key.strip_prefix("output_recall_tokens|") {
+                let _ = writeln!(
+                    &mut out,
+                    "xiaolin_output_recall_tokens_total{{tool=\"{}\"}} {}",
+                    tool,
+                    e.value().load(Ordering::Relaxed)
+                );
+            }
+        }
+
+        out.push_str(
+            "# HELP xiaolin_output_recall_latency_ms Recall tool latency by tool\n",
+        );
+        out.push_str("# TYPE xiaolin_output_recall_latency_ms summary\n");
+        for e in self.histograms.iter() {
+            let key = e.key();
+            let Some(rest) = key.strip_prefix("output_recall_latency|") else {
+                continue;
+            };
+            let vec = match e.value().lock() {
+                Ok(g) => g.clone(),
+                Err(poisoned) => poisoned.into_inner().clone(),
+            };
+            let samples: Vec<f64> = vec.iter().copied().collect();
+            let count = samples.len() as f64;
+            let sum: f64 = samples.iter().sum();
+            let (p50, p95, p99) = Self::percentiles(&samples);
+            let _ = writeln!(
+                &mut out,
+                "xiaolin_output_recall_latency_ms{{tool=\"{}\",quantile=\"0.5\"}} {}",
+                rest, p50
+            );
+            let _ = writeln!(
+                &mut out,
+                "xiaolin_output_recall_latency_ms{{tool=\"{}\",quantile=\"0.95\"}} {}",
+                rest, p95
+            );
+            let _ = writeln!(
+                &mut out,
+                "xiaolin_output_recall_latency_ms{{tool=\"{}\",quantile=\"0.99\"}} {}",
+                rest, p99
+            );
+            let _ = writeln!(
+                &mut out,
+                "xiaolin_output_recall_latency_ms_sum{{tool=\"{}\"}} {}",
+                rest, sum
+            );
+            let _ = writeln!(
+                &mut out,
+                "xiaolin_output_recall_latency_ms_count{{tool=\"{}\"}} {}",
+                rest, count
             );
         }
 

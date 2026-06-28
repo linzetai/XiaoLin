@@ -69,12 +69,12 @@
 
 ## 8. Observability And Runtime Quality
 
-- [ ] 8.1 Add metrics for asset creation count, raw bytes, raw token estimate, line count, projected token estimate, and tokens saved.
-- [ ] 8.2 Add metrics for recall tool success, failure type, returned token estimate, and latency.
-- [ ] 8.3 Extend turn quality summary persistence with asset count, raw output token estimate, projected output tokens, recall count, and repeated-tool-call indicators.
-- [ ] 8.4 Correlate repeated same/equivalent tool calls with prior available output handles where possible.
-- [ ] 8.5 Add documentation or SQL examples for measuring output projection effectiveness across sessions.
-- [ ] 8.6 Add tests proving metrics avoid recording sensitive raw output content.
+- [x] 8.1 Add metrics for asset creation count, raw bytes, raw token estimate, line count, projected token estimate, and tokens saved.
+- [x] 8.2 Add metrics for recall tool success, failure type, returned token estimate, and latency.
+- [x] 8.3 Extend turn quality summary persistence with asset count, raw output token estimate, projected output tokens, recall count, and repeated-tool-call indicators.
+- [x] 8.4 Correlate repeated same/equivalent tool calls with prior available output handles where possible.
+- [x] 8.5 Add documentation or SQL examples for measuring output projection effectiveness across sessions.
+- [x] 8.6 Add tests proving metrics avoid recording sensitive raw output content.
 
 ## 9. Quality Gates And Benchmarks
 

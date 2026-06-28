@@ -51,6 +51,11 @@ impl RuntimeQualityStore {
                 diagnosis_code                  TEXT NOT NULL,
                 severity                        TEXT NOT NULL,
                 evidence_json                   TEXT NOT NULL,
+                asset_count                     INTEGER NOT NULL DEFAULT 0,
+                raw_output_token_estimate       INTEGER NOT NULL DEFAULT 0,
+                projected_output_tokens         INTEGER NOT NULL DEFAULT 0,
+                recall_count                    INTEGER NOT NULL DEFAULT 0,
+                repeated_tool_call_indicators   INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (session_id, turn_id)
             )",
         )
@@ -95,7 +100,9 @@ impl RuntimeQualityStore {
                 repeated_tool_force_stop_count, input_tokens, output_tokens, cache_read_tokens,
                 cache_creation_tokens, cache_hit_pct, estimated_cost_usd, context_tokens,
                 context_window, context_usage_pct, compressed, tokens_saved, compact_count,
-                diagnosis_code, severity, evidence_json
+                diagnosis_code, severity, evidence_json,
+                asset_count, raw_output_token_estimate, projected_output_tokens,
+                recall_count, repeated_tool_call_indicators
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                 ?8, ?9, ?10, ?11, ?12,
@@ -104,7 +111,9 @@ impl RuntimeQualityStore {
                 ?20, ?21, ?22, ?23,
                 ?24, ?25, ?26, ?27,
                 ?28, ?29, ?30, ?31, ?32,
-                ?33, ?34, ?35
+                ?33, ?34, ?35,
+                ?36, ?37, ?38,
+                ?39, ?40
             )
             ON CONFLICT(session_id, turn_id) DO UPDATE SET
                 agent_id = excluded.agent_id,
@@ -139,7 +148,12 @@ impl RuntimeQualityStore {
                 compact_count = excluded.compact_count,
                 diagnosis_code = excluded.diagnosis_code,
                 severity = excluded.severity,
-                evidence_json = excluded.evidence_json",
+                evidence_json = excluded.evidence_json,
+                asset_count = excluded.asset_count,
+                raw_output_token_estimate = excluded.raw_output_token_estimate,
+                projected_output_tokens = excluded.projected_output_tokens,
+                recall_count = excluded.recall_count,
+                repeated_tool_call_indicators = excluded.repeated_tool_call_indicators",
         )
         .bind(&summary.session_id)
         .bind(&summary.turn_id)
@@ -176,6 +190,11 @@ impl RuntimeQualityStore {
         .bind(summary.diagnosis_code.as_str())
         .bind(summary.severity.as_str())
         .bind(serde_json::to_string(&summary.evidence_json)?)
+        .bind(summary.asset_count as i64)
+        .bind(summary.raw_output_token_estimate as i64)
+        .bind(summary.projected_output_tokens as i64)
+        .bind(summary.recall_count as i64)
+        .bind(summary.repeated_tool_call_indicators as i64)
         .execute(&self.pool)
         .await?;
 
@@ -329,6 +348,11 @@ fn row_to_summary(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<TurnQualitySum
         diagnosis_code: diagnosis_from_str(row.try_get::<String, _>("diagnosis_code")?.as_str()),
         severity: severity_from_str(row.try_get::<String, _>("severity")?.as_str()),
         evidence_json: serde_json::from_str(&evidence_raw)?,
+        asset_count: row.try_get::<i64, _>("asset_count")? as u32,
+        raw_output_token_estimate: row.try_get::<i64, _>("raw_output_token_estimate")? as u64,
+        projected_output_tokens: row.try_get::<i64, _>("projected_output_tokens")? as u64,
+        recall_count: row.try_get::<i64, _>("recall_count")? as u32,
+        repeated_tool_call_indicators: row.try_get::<i64, _>("repeated_tool_call_indicators")? as u32,
     })
 }
 
@@ -374,6 +398,11 @@ mod tests {
             diagnosis_code: TurnQualityDiagnosisCode::Normal,
             severity: TurnQualitySeverity::Info,
             evidence_json: serde_json::json!({"elapsedMs": 2000, "toolCallsTotal": 1}),
+            asset_count: 0,
+            raw_output_token_estimate: 0,
+            projected_output_tokens: 0,
+            recall_count: 0,
+            repeated_tool_call_indicators: 0,
         }
     }
 

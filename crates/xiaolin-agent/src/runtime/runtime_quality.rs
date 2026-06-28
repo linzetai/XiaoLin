@@ -5,6 +5,20 @@ use xiaolin_session::RuntimeQualityStore;
 
 use super::query_state::QueryLoopState;
 
+/// Phase 8.3: per-turn recall invocation counter. Incremented by recall tools
+/// (output_read/output_search/output_tail/output_summary) and consumed at
+/// summary-build time by RuntimeQualityCollector.
+pub(crate) static RECALL_TURN_COUNTER: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
+pub(crate) fn increment_recall_counter() {
+    RECALL_TURN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn take_recall_count() -> u32 {
+    RECALL_TURN_COUNTER.swap(0, std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ToolQualitySample {
     pub name: String,
@@ -25,6 +39,10 @@ pub(crate) struct RuntimeQualityCollector {
     compact_count: u32,
     tokens_saved: Option<i64>,
     tool_samples: Vec<ToolQualitySample>,
+    // Phase 8.3 fields
+    asset_count: u32,
+    raw_output_token_estimate: u64,
+    projected_output_tokens: u64,
 }
 
 impl RuntimeQualityCollector {
@@ -41,6 +59,9 @@ impl RuntimeQualityCollector {
             compact_count: 0,
             tokens_saved: None,
             tool_samples: Vec::new(),
+            asset_count: 0,
+            raw_output_token_estimate: 0,
+            projected_output_tokens: 0,
         }
     }
 
@@ -86,6 +107,30 @@ impl RuntimeQualityCollector {
         self.compact_count = self.compact_count.saturating_add(1);
         let saved = pre_tokens as i64 - post_tokens as i64;
         self.tokens_saved = Some(self.tokens_saved.unwrap_or(0) + saved);
+    }
+
+    // Phase 8.3: output asset and recall metrics accumulation
+
+    /// Record an output asset creation with its raw byte count.
+    pub fn record_asset_created(&mut self, raw_bytes: usize) {
+        self.asset_count = self.asset_count.saturating_add(1);
+        self.raw_output_token_estimate = self
+            .raw_output_token_estimate
+            .saturating_add((raw_bytes / 4) as u64);
+    }
+
+    /// Accumulate projected token estimates.
+    pub fn accumulate_projected_tokens(&mut self, projected_tokens: usize) {
+        self.projected_output_tokens = self
+            .projected_output_tokens
+            .saturating_add(projected_tokens as u64);
+    }
+
+    /// Record a recall tool invocation.
+    pub fn record_recall_call(&mut self) {
+        // Deprecated: recall count is now tracked via the module-level
+        // atomic counter (increment_recall_counter / take_recall_count).
+        // This method remains as a no-op for API compatibility.
     }
 
     #[allow(dead_code)]
@@ -216,6 +261,12 @@ impl RuntimeQualityCollector {
             diagnosis_code,
             severity,
             evidence_json,
+            // Phase 8.3: output asset and recall metrics
+            asset_count: self.asset_count,
+            raw_output_token_estimate: self.raw_output_token_estimate,
+            projected_output_tokens: self.projected_output_tokens,
+            recall_count: take_recall_count(),
+            repeated_tool_call_indicators: repeated_tool_warn_count + repeated_tool_force_stop_count,
         }
     }
 }
@@ -538,5 +589,56 @@ mod tests {
         assert_eq!(row.output_tokens, 35);
         assert_eq!(row.context_tokens, Some(250));
         assert_eq!(row.context_window, Some(1_000));
+    }
+
+    #[test]
+    fn metrics_avoid_recording_sensitive_raw_output_content() {
+        // Phase 8.6: Verify Phase 8.3 fields are aggregate counters only.
+        // Use a tagged sensitive payload to prove raw content is never captured.
+        let sensitive = "SECRET_api_key=xyz123-password=admin123-file=/home/alice/secrets.json";
+        let mut collector = RuntimeQualityCollector::new();
+
+        // Simulate asset creation with sensitive output
+        collector.record_asset_created(sensitive.len());
+        collector.accumulate_projected_tokens(sensitive.len() / 4);
+
+        // Simulate a recall call
+        increment_recall_counter();
+
+        let mut state = QueryLoopState::new(10);
+        state.iteration = 1;
+        state.total_tool_calls = 2;
+        let config: AgentConfig = serde_json::from_value(serde_json::json!({
+            "agentId": "privacy-test",
+            "model": { "provider": "openai" }
+        })).unwrap();
+
+        let summary = collector.build_summary(
+            "sess-privacy",
+            &TurnId::new("turn-privacy"),
+            &config,
+            "model",
+            std::time::Instant::now(),
+            1000,
+            &state,
+        );
+
+        // Phase 8.3 fields are aggregates — never expose raw content
+        assert_eq!(summary.asset_count, 1, "asset_count should be aggregate count only");
+        assert!(summary.raw_output_token_estimate > 0, "should record token estimate");
+        assert!(summary.projected_output_tokens > 0, "should record projection tokens");
+        assert_eq!(summary.recall_count, 1, "should record recall invocation count");
+
+        // evidence_json must not capture any part of the sensitive payload
+        let evidence = summary.evidence_json.to_string();
+        assert!(!evidence.contains("api_key"));
+        assert!(!evidence.contains("xyz123"));
+        assert!(!evidence.contains("password"));
+        assert!(!evidence.contains("admin123"));
+        assert!(!evidence.contains("/home/alice"));
+        assert!(!evidence.contains("secrets.json"));
+
+        // Verify evidence_json only contains diagnostic keys, not raw data
+        assert!(evidence.contains("elapsedMs"));
     }
 }

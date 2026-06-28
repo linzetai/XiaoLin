@@ -69,6 +69,8 @@ pub struct OutputHandleRecord {
     pub handle: String,
     pub tool_name: String,
     pub arguments_summary: String,
+    /// SHA-256 digest for Phase 8.4 correlation with repeated tool calls.
+    pub arguments_digest: String,
 }
 
 /// State to be restored after compaction.
@@ -160,10 +162,18 @@ impl RestorationState {
         }
     }
 
-    pub fn add_output_handle(&mut self, handle: String, tool_name: String, arguments_summary: String) {
+    pub fn add_output_handle(&mut self, handle: String, tool_name: String, arguments_summary: String, arguments_digest: String) {
         if self.output_handles.iter().any(|h| h.handle == handle) { return; }
         if self.output_handles.len() >= MAX_OUTPUT_HANDLES_TO_RESTORE { self.output_handles.pop_front(); }
-        self.output_handles.push_back(OutputHandleRecord { handle, tool_name, arguments_summary });
+        self.output_handles.push_back(OutputHandleRecord { handle, tool_name, arguments_summary, arguments_digest });
+    }
+
+    /// Phase 8.4: Check whether a repeated tool call has a prior output handle
+    /// with the same arguments digest, indicating a potentially unnecessary re-run.
+    pub fn find_handle_for_tool_call(&self, tool_name: &str, arguments_digest: &str) -> Option<&OutputHandleRecord> {
+        self.output_handles.iter()
+            .filter(|h| h.tool_name == tool_name && h.arguments_digest == arguments_digest)
+            .last() // most recent match
     }
 
     /// Generate restoration messages to inject after compaction.
@@ -598,19 +608,19 @@ mod tests {
 
     #[test] fn add_output_handle_deduplicates() {
         let mut state = RestorationState::new();
-        state.add_output_handle("out_a1b2".into(), "read_file".into(), "src/main.rs".into());
-        state.add_output_handle("out_a1b2".into(), "read_file".into(), "src/main.rs".into());
+        state.add_output_handle("out_a1b2".into(), "read_file".into(), "src/main.rs".into(), "dummy_digest".into());
+        state.add_output_handle("out_a1b2".into(), "read_file".into(), "src/main.rs".into(), "dummy_digest".into());
         assert_eq!(state.output_handles.len(), 1);
     }
     #[test] fn add_output_handle_multiple_unique() {
         let mut state = RestorationState::new();
-        state.add_output_handle("out_a1".into(), "search_in_files".into(), r#"pattern: "fn main""#.into());
-        state.add_output_handle("out_b2".into(), "shell_exec".into(), "cargo test".into());
+        state.add_output_handle("out_a1".into(), "search_in_files".into(), r#"pattern: "fn main""#.into(), "dd".into());
+        state.add_output_handle("out_b2".into(), "shell_exec".into(), "cargo test".into(), "dd".into());
         assert_eq!(state.output_handles.len(), 2);
     }
     #[test] fn output_handles_message_with_computed_relevance() {
         let mut state = RestorationState::new();
-        state.add_output_handle("out_abc123".into(), "read_file".into(), "src/lib.rs:1-200".into());
+        state.add_output_handle("out_abc123".into(), "read_file".into(), "src/lib.rs:1-200".into(), "dd".into());
         let msg = state.generate_restoration_messages().into_iter().find(|m| m.content.as_ref().map(|c| c.to_string().contains("Output handles preserved")).unwrap_or(false)).expect("should have handle msg");
         let text = msg.content.as_ref().unwrap().to_string();
         assert!(text.contains("out_abc123"));
@@ -624,7 +634,7 @@ mod tests {
     #[test] fn output_handles_coexist_with_files_and_plan() {
         let mut state = RestorationState::new();
         state.add_file(PathBuf::from("/src/main.rs"), "fn main() {}".into());
-        state.add_output_handle("out_test123".into(), "shell_exec".into(), "cargo test --lib".into());
+        state.add_output_handle("out_test123".into(), "shell_exec".into(), "cargo test --lib".into(), "dd".into());
         state.is_plan_mode = true;
         let msgs = state.generate_restoration_messages();
         assert!(msgs.iter().any(|m| m.content.as_ref().map(|c| c.to_string().contains("Recently read files")).unwrap_or(false)));
@@ -633,14 +643,14 @@ mod tests {
     }
     #[test] fn output_handle_cap_evicts_oldest() {
         let mut state = RestorationState::new();
-        for i in 0..100u32 { state.add_output_handle(format!("out_{i:06x}"), "read_file".into(), format!("file_{i}.rs")); }
+        for i in 0..100u32 { state.add_output_handle(format!("out_{i:06x}"), "read_file".into(), format!("file_{i}.rs"), "dd".into()); }
         assert_eq!(state.output_handles.len(), MAX_OUTPUT_HANDLES_TO_RESTORE);
         assert_eq!(state.output_handles[0].handle, "out_000050");
         assert_eq!(state.output_handles.back().unwrap().handle, "out_000063");
     }
     #[test] fn output_handle_budget_fits_all_capped_handles() {
         let mut state = RestorationState::new();
-        for i in 0..MAX_OUTPUT_HANDLES_TO_RESTORE { state.add_output_handle(format!("out_handle_{i:04}"), "shell_exec".into(), format!("command_line_{i}: cargo test --lib -- --test-threads=1")); }
+        for i in 0..MAX_OUTPUT_HANDLES_TO_RESTORE { state.add_output_handle(format!("out_handle_{i:04}"), "shell_exec".into(), format!("command_line_{i}: cargo test --lib -- --test-threads=1"), "dd".into()); }
         let msg = state.generate_restoration_messages().into_iter().find(|m| m.content.as_ref().map(|c| c.to_string().contains("Output handles preserved")).unwrap_or(false)).expect("should have handle msg");
         let text = msg.content.as_ref().unwrap().to_string();
         assert_eq!(text.matches("Handle:").count(), MAX_OUTPUT_HANDLES_TO_RESTORE);

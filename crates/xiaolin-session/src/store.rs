@@ -481,6 +481,32 @@ impl SessionStore {
             tracing::info!("migrated messages table: added segment_order_json column");
         }
 
+        // Phase 8.3: migrate turn_quality_summary with output asset / recall columns.
+        {
+            let cols = [
+                ("asset_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("raw_output_token_estimate", "INTEGER NOT NULL DEFAULT 0"),
+                ("projected_output_tokens", "INTEGER NOT NULL DEFAULT 0"),
+                ("recall_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("repeated_tool_call_indicators", "INTEGER NOT NULL DEFAULT 0"),
+            ];
+            for (col_name, col_def) in &cols {
+                let count: i64 = sqlx::query_scalar(&format!(
+                    "SELECT COUNT(*) FROM pragma_table_info('turn_quality_summary') WHERE name = '{col_name}'"
+                ))
+                .fetch_one(&self.pool)
+                .await?;
+                if count == 0 {
+                    sqlx::query(&format!(
+                        "ALTER TABLE turn_quality_summary ADD COLUMN {col_name} {col_def}"
+                    ))
+                    .execute(&self.pool)
+                    .await?;
+                    tracing::info!("migrated turn_quality_summary: added {col_name} column");
+                }
+            }
+        }
+
         Ok(())
     }
 

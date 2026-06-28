@@ -100,6 +100,45 @@ pub fn record_tool_repetition(action: &str, tool_name: &str) {
     shared_metrics_collector().record_tool_repetition(action, tool_name);
 }
 
+// ── Output asset metrics (Phase 8.1) ──
+
+/// Record an output asset creation with tool name and size class.
+pub fn record_output_asset_created(tool_name: &str, size_class: &str) {
+    shared_metrics_collector().record_output_asset_created(tool_name, size_class);
+}
+
+/// Accumulate raw bytes of tool output assets.
+pub fn record_output_asset_raw_bytes(tool_name: &str, bytes: u64) {
+    shared_metrics_collector().record_output_asset_raw_bytes(tool_name, bytes);
+}
+
+/// Accumulate projected token estimates.
+pub fn record_output_asset_projected_tokens(tool_name: &str, tokens: u64) {
+    shared_metrics_collector().record_output_asset_projected_tokens(tool_name, tokens);
+}
+
+/// Accumulate tokens saved via projection.
+pub fn record_output_asset_tokens_saved(tool_name: &str, tokens: u64) {
+    shared_metrics_collector().record_output_asset_tokens_saved(tool_name, tokens);
+}
+
+// ── Recall tool metrics (Phase 8.2) ──
+
+/// Record a recall tool invocation with status.
+pub fn record_output_recall(recall_tool: &str, status: &str) {
+    shared_metrics_collector().record_output_recall(recall_tool, status);
+}
+
+/// Accumulate tokens returned by a recall tool.
+pub fn record_output_recall_tokens(recall_tool: &str, tokens: u64) {
+    shared_metrics_collector().record_output_recall_tokens(recall_tool, tokens);
+}
+
+/// Record recall tool latency in milliseconds.
+pub fn record_output_recall_latency_ms(recall_tool: &str, ms: f64) {
+    shared_metrics_collector().record_output_recall_latency_ms(recall_tool, ms);
+}
+
 pub fn record_ws_connection(delta: i64) {
     if delta > 0 {
         gauge!("xiaolin_ws_connections").increment(delta as f64);

@@ -120,6 +120,9 @@ pub(crate) struct UnifiedCompactResult {
     /// When true, the caller should invalidate `FileStateCache` to prevent
     /// stale dedup detection after context compression removed file content.
     pub file_state_needs_invalidation: bool,
+    /// Phase 8.3: projection tokens and tokens saved, for turn-level summary.
+    pub projection_tokens: usize,
+    pub projection_tokens_saved: usize,
 }
 
 /// Run all pre-query compression steps in a single call.
@@ -264,7 +267,7 @@ pub(crate) async fn unified_pre_query_compact(
     // typed projections under token budget. This is the single owner of
     // model-visible output projection. After this step, ContentFilterHook
     // will recognize already-projected content and avoid re-truncation.
-    {
+    let (projection_tokens, projection_tokens_saved) = {
         let mut proj_pipeline = ContextProjectionPipeline::new();
         // Allocate ~20% of context window for tool output projections.
         let proj_budget = (context_window as usize) / 5;
@@ -285,7 +288,8 @@ pub(crate) async fn unified_pre_query_compact(
                 "context projection pipeline applied typed projections"
             );
         }
-    }
+        (budget.projected_tokens_estimate, budget.tokens_saved)
+    };
 
     // Step 3: Content filter — truncate oversized tool results, remove empty,
     // deduplicate consecutive identical system messages.
@@ -594,6 +598,8 @@ pub(crate) async fn unified_pre_query_compact(
         extracted_memory: extraction.memory,
         state_restored,
         file_state_needs_invalidation: any_significant_compression,
+        projection_tokens,
+        projection_tokens_saved,
     }
 }
 

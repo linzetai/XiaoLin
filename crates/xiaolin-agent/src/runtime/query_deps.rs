@@ -198,6 +198,8 @@ pub(crate) mod mock {
                     extracted_memory: None,
                     state_restored: false,
                     file_state_needs_invalidation: false,
+                    projection_tokens: 0,
+                    projection_tokens_saved: 0,
                 }
             } else {
                 results.remove(0)

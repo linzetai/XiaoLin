@@ -116,4 +116,14 @@ pub struct TurnQualitySummary {
     pub diagnosis_code: TurnQualityDiagnosisCode,
     pub severity: TurnQualitySeverity,
     pub evidence_json: serde_json::Value,
+    /// Phase 8.3: number of tool output assets created this turn.
+    pub asset_count: u32,
+    /// Phase 8.3: estimated tokens of raw tool outputs this turn.
+    pub raw_output_token_estimate: u64,
+    /// Phase 8.3: estimated tokens after projection this turn.
+    pub projected_output_tokens: u64,
+    /// Phase 8.3: number of recall tool calls this turn.
+    pub recall_count: u32,
+    /// Phase 8.3: number of repeated tool call detections this turn.
+    pub repeated_tool_call_indicators: u32,
 }

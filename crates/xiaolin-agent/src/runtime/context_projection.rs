@@ -65,8 +65,10 @@ impl ProjectionBudget {
         self.raw_tokens_estimate += raw_bytes / 4;
         let proj_bytes = projected.format().len();
         self.projected_bytes += proj_bytes;
-        self.projected_tokens_estimate += projected.estimated_tokens();
-        self.tokens_saved += (raw_bytes / 4).saturating_sub(projected.estimated_tokens());
+        let proj_tokens = projected.estimated_tokens();
+        self.projected_tokens_estimate += proj_tokens;
+        let saved = (raw_bytes / 4).saturating_sub(proj_tokens);
+        self.tokens_saved += saved;
         self.projected_count += 1;
     }
 
@@ -243,6 +245,11 @@ impl ContextProjectionPipeline {
                     let proj_tokens = projection.estimated_tokens();
                     if self.try_consume_budget(proj_tokens) {
                         self.budget.record_projection(raw_bytes, &projection);
+                        let saved = (raw_bytes / 4).saturating_sub(proj_tokens);
+                        xiaolin_observe::record_output_asset_projected_tokens(
+                            msg.name.as_deref().unwrap_or("unknown"), proj_tokens as u64);
+                        xiaolin_observe::record_output_asset_tokens_saved(
+                            msg.name.as_deref().unwrap_or("unknown"), saved as u64);
                         msg.content = Some(serde_json::Value::String(projection.format()));
                     } else {
                         let h = handle.as_deref().unwrap_or("unknown");
@@ -283,13 +290,18 @@ impl ContextProjectionPipeline {
                     let proj_tokens = projection.estimated_tokens();
                     if self.try_consume_budget(proj_tokens) {
                         self.budget.record_projection(raw_bytes, &projection);
+                        let saved = (raw_bytes / 4).saturating_sub(proj_tokens);
+                        xiaolin_observe::record_output_asset_projected_tokens(
+                            msg.name.as_deref().unwrap_or("unknown"), proj_tokens as u64);
+                        xiaolin_observe::record_output_asset_tokens_saved(
+                            msg.name.as_deref().unwrap_or("unknown"), saved as u64);
                         msg.content = Some(serde_json::Value::String(projection.format()));
                     } else {
                         let h = handle.as_deref().unwrap_or("unknown");
                         let content =
                             build_handle_only(msg.name.as_deref().unwrap_or("unknown"), h);
                         msg.content = Some(serde_json::Value::String(content));
-                        self.budget.record_inline(raw_bytes);
+                        self.budget.record_handle_only_fallback(raw_bytes);
                     }
                 }
             }

@@ -215,6 +215,11 @@ pub(crate) async fn iteration_pre_check(
     ms.query_loop.last_estimated_tokens = compact_result.estimated_tokens;
     let estimated_tokens = compact_result.estimated_tokens;
 
+    // Phase 8.3: accumulate projection metrics into turn-level quality summary
+    if compact_result.projection_tokens > 0 {
+        ms.runtime_quality.accumulate_projected_tokens(compact_result.projection_tokens);
+    }
+
     // ── 6b. Invalidate file state cache after significant compression ─
     // The LLM's "memory" of file contents may now be gone, so the cache's
     // dedup logic (skip re-reading unchanged files) would incorrectly

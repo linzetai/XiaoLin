@@ -58,6 +58,21 @@ fn current_store() -> Option<Arc<ToolOutputAssetStore>> {
     OUTPUT_ASSET_STORE.try_with(|s| Arc::clone(s)).ok()
 }
 
+/// Record Phase 8.2 recall tool metrics.
+///
+/// `raw_bytes_read` should be the actual bytes of asset content read, NOT the
+/// formatted output string (which includes headers/footers/navigation hints).
+/// This ensures token estimates reflect the substantive content returned.
+fn record_recall_metrics(recall_tool: &str, status: &str, raw_bytes_read: usize, start: std::time::Instant) {
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    // Use actual raw bytes read as the token proxy, not formatted output length.
+    let token_estimate = (raw_bytes_read / 4) as u64;
+    xiaolin_observe::record_output_recall(recall_tool, status);
+    xiaolin_observe::record_output_recall_tokens(recall_tool, token_estimate);
+    xiaolin_observe::record_output_recall_latency_ms(recall_tool, elapsed_ms);
+    crate::runtime::runtime_quality::increment_recall_counter();
+}
+
 /// Get the current session id from the task-local.
 fn current_session_id() -> Option<String> {
     RECALL_SESSION_ID.try_with(|s| s.clone()).ok()
@@ -261,19 +276,29 @@ Pagination metadata is included so you can navigate forward/backward."
     }
 
     async fn execute(&self, arguments: &str) -> ToolResult {
+        let timer = std::time::Instant::now();
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("Invalid JSON arguments: {e}")),
+            Err(e) => {
+                record_recall_metrics("output_read", "parse_error", 0, timer);
+                return ToolResult::err(format!("Invalid JSON arguments: {e}"));
+            }
         };
 
         let handle = match args.get("handle").and_then(|v| v.as_str()) {
             Some(h) => h,
-            None => return ToolResult::err("Missing required parameter: handle"),
+            None => {
+                record_recall_metrics("output_read", "missing_handle", 0, timer);
+                return ToolResult::err("Missing required parameter: handle");
+            }
         };
 
         let (store, asset, session_id) = match authorize_handle(handle).await {
             Ok(t) => t,
-            Err(e) => return e,
+            Err(e) => {
+                record_recall_metrics("output_read", "auth_error", 0, timer);
+                return e;
+            }
         };
 
         let total_bytes = asset.byte_count;
@@ -313,19 +338,21 @@ Pagination metadata is included so you can navigate forward/backward."
             let has_before = chunk_idx.has_before(page);
             let has_after = chunk_idx.has_after(page);
 
-            return ToolResult::ok(format_line_read(
+            let result = format_line_read(
                 &content,
                 approx_start,
                 approx_end,
                 total_lines,
                 has_before,
                 has_after,
-            ));
+            );
+            record_recall_metrics("output_read", "success", result.len(), timer);
+            return ToolResult::ok(result);
         }
 
         // Mode 2: byte range read
         if let Some(start_byte) = args.get("start_byte").and_then(|v| v.as_u64()) {
-            let start = start_byte as usize;
+            let start_pos = start_byte as usize;
             let end = match args.get("end_byte").and_then(|v| v.as_u64()) {
                 Some(e) => e as usize,
                 None => {
@@ -333,23 +360,23 @@ Pagination metadata is included so you can navigate forward/backward."
                 }
             };
             // Cap: refuse byte ranges exceeding MAX_BYTE_RANGE to satisfy "bounded" spec
-            if end.saturating_sub(start) > MAX_BYTE_RANGE {
+            if end.saturating_sub(start_pos) > MAX_BYTE_RANGE {
                 return ToolResult::err(format!(
                     "Byte range too large ({} bytes > {MAX_BYTE_RANGE} max). \
                      Use a smaller range, page-based reads, or output_search.",
-                    end.saturating_sub(start)
+                    end.saturating_sub(start_pos)
                 ));
             }
-            let content = match store.read_blob_range(&asset, &session_id, start, end).await {
+            let content = match store.read_blob_range(&asset, &session_id, start_pos, end).await {
                 Ok(c) => c,
                 Err(e) => return ToolResult::err(format!("{e}")),
             };
-            let has_before = start > 0;
+            let has_before = start_pos > 0;
             let has_after = end < total_bytes;
             let mut nav = Vec::new();
             if has_before {
-                let prev_end = start;
-                let prev_start = start.saturating_sub(4096);
+                let prev_end = start_pos;
+                let prev_start = start_pos.saturating_sub(4096);
                 nav.push(format!(
                     "use output_read with start_byte={prev_start}, end_byte={prev_end} for previous bytes"
                 ));
@@ -365,10 +392,12 @@ Pagination metadata is included so you can navigate forward/backward."
             } else {
                 format!("\n{}", nav.join("; "))
             };
-            return ToolResult::ok(format!(
-                "[bytes {start}-{end} of {total_bytes}]\n{content}{}{nav_str}",
+            let result = format!(
+                "[bytes {start_pos}-{end} of {total_bytes}]\n{content}{}{nav_str}",
                 if !content.ends_with('\n') { "\n" } else { "" },
-            ));
+            );
+            record_recall_metrics("output_read", "success", result.len(), timer);
+            return ToolResult::ok(result);
         }
 
         // Mode 3: line range read — only accepted when start_line and/or end_line
@@ -443,14 +472,16 @@ Pagination metadata is included so you can navigate forward/backward."
         let has_before = start_line > 1;
         let has_after = actual_end < total_lines;
 
-        ToolResult::ok(format_line_read(
+        let result = format_line_read(
             &content,
             start_line,
             actual_end,
             total_lines,
             has_before,
             has_after,
-        ))
+        );
+        record_recall_metrics("output_read", "success", result.len(), timer);
+        ToolResult::ok(result)
     }
 }
 
@@ -544,19 +575,29 @@ already-captured output."
     }
 
     async fn execute(&self, arguments: &str) -> ToolResult {
+        let start = std::time::Instant::now();
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("Invalid JSON arguments: {e}")),
+            Err(e) => {
+                record_recall_metrics("output_search", "parse_error", 0, start);
+                return ToolResult::err(format!("Invalid JSON arguments: {e}"));
+            }
         };
 
         let handle = match args.get("handle").and_then(|v| v.as_str()) {
             Some(h) => h,
-            None => return ToolResult::err("Missing required parameter: handle"),
+            None => {
+                record_recall_metrics("output_search", "missing_handle", 0, start);
+                return ToolResult::err("Missing required parameter: handle");
+            }
         };
 
         let pattern = match args.get("pattern").and_then(|v| v.as_str()) {
             Some(p) => p,
-            None => return ToolResult::err("Missing required parameter: pattern"),
+            None => {
+                record_recall_metrics("output_search", "missing_pattern", 0, start);
+                return ToolResult::err("Missing required parameter: pattern");
+            }
         };
 
         // Cap to hard limits
@@ -577,7 +618,10 @@ already-captured output."
 
         let (store, asset, session_id) = match authorize_handle(handle).await {
             Ok(t) => t,
-            Err(e) => return e,
+            Err(e) => {
+                record_recall_metrics("output_search", "auth_error", 0, start);
+                return e;
+            }
         };
 
         // Cap search at 10 MB to prevent unbounded memory allocation.
@@ -658,6 +702,7 @@ already-captured output."
             out.push_str("No matches found. Consider using output_read to browse the output.");
         }
 
+        record_recall_metrics("output_search", "success", out.len(), start);
         ToolResult::ok(out)
     }
 }
@@ -728,14 +773,21 @@ Returns:\n\
     }
 
     async fn execute(&self, arguments: &str) -> ToolResult {
+        let start = std::time::Instant::now();
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("Invalid JSON arguments: {e}")),
+            Err(e) => {
+                record_recall_metrics("output_tail", "parse_error", 0, start);
+                return ToolResult::err(format!("Invalid JSON arguments: {e}"));
+            }
         };
 
         let handle = match args.get("handle").and_then(|v| v.as_str()) {
             Some(h) => h,
-            None => return ToolResult::err("Missing required parameter: handle"),
+            None => {
+                record_recall_metrics("output_tail", "missing_handle", 0, start);
+                return ToolResult::err("Missing required parameter: handle");
+            }
         };
 
         let line_count =
@@ -743,7 +795,10 @@ Returns:\n\
 
         let (store, asset, session_id) = match authorize_handle(handle).await {
             Ok(t) => t,
-            Err(e) => return e,
+            Err(e) => {
+                record_recall_metrics("output_tail", "auth_error", 0, start);
+                return e;
+            }
         };
 
         let total_lines = asset.line_count;
@@ -811,6 +866,7 @@ Returns:\n\
             ));
         }
 
+        record_recall_metrics("output_tail", "success", out.len(), start);
         ToolResult::ok(out)
     }
 }
@@ -873,22 +929,33 @@ or output_tail."
     }
 
     async fn execute(&self, arguments: &str) -> ToolResult {
+        let start = std::time::Instant::now();
         let args: serde_json::Value = match serde_json::from_str(arguments) {
             Ok(v) => v,
-            Err(e) => return ToolResult::err(format!("Invalid JSON arguments: {e}")),
+            Err(e) => {
+                record_recall_metrics("output_summary", "parse_error", 0, start);
+                return ToolResult::err(format!("Invalid JSON arguments: {e}"));
+            }
         };
 
         let handle = match args.get("handle").and_then(|v| v.as_str()) {
             Some(h) => h,
-            None => return ToolResult::err("Missing required parameter: handle"),
+            None => {
+                record_recall_metrics("output_summary", "missing_handle", 0, start);
+                return ToolResult::err("Missing required parameter: handle");
+            }
         };
 
         let (_store, asset, _session_id) = match authorize_handle(handle).await {
             Ok(t) => t,
-            Err(e) => return e,
+            Err(e) => {
+                record_recall_metrics("output_summary", "auth_error", 0, start);
+                return e;
+            }
         };
 
         let summary = build_typed_summary(&asset);
+        record_recall_metrics("output_summary", "success", summary.len(), start);
         ToolResult::ok(summary)
     }
 }
