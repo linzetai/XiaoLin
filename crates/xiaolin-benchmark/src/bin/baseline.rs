@@ -117,6 +117,7 @@ async fn main() -> anyhow::Result<()> {
 
     let registry = Arc::new(ToolRegistry::new());
     xiaolin_agent::builtin_tools::register_builtin_tools(&registry);
+    xiaolin_agent::builtin_tools::register_recall_tools(&registry);
 
     let agent_config = AgentConfig {
         agent_id: AgentId::new("benchmark"),

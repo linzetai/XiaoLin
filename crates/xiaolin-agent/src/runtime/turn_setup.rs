@@ -410,10 +410,12 @@ pub(crate) async fn setup_turn(
     if let (Some(ref store), Some(ref sid)) = (session_store, request.session_id.as_deref()) {
         match xiaolin_session::tool_output_store::ToolOutputAssetStore::open(store.pool()).await {
             Ok(asset_store) => {
-                turn_services.tool_output_store = Some(std::sync::Arc::new(asset_store));
+                let store_arc = std::sync::Arc::new(asset_store);
+                turn_services.dispatcher.tool_output_store = Some(store_arc.clone());
+                turn_services.tool_output_store = Some(store_arc);
                 tracing::info!(
                     session_id = sid,
-                    "ToolOutputAssetStore wired for session"
+                    "ToolOutputAssetStore wired for session + dispatcher"
                 );
             }
             Err(e) => {

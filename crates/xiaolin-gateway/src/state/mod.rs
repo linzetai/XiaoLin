@@ -1282,6 +1282,7 @@ impl AppState {
         let creds = &config.credentials;
         let tool_registry = ToolRegistry::new();
         xiaolin_agent::builtin_tools::register_builtin_tools(&tool_registry);
+        xiaolin_agent::builtin_tools::register_recall_tools(&tool_registry);
         let todo_store = xiaolin_agent::builtin_tools::TodoStore::new();
         xiaolin_agent::builtin_tools::register_todo_tools(&tool_registry, todo_store.clone());
 
@@ -3291,6 +3292,7 @@ impl AppState {
 
         let tool_registry = ToolRegistry::new();
         xiaolin_agent::builtin_tools::register_builtin_tools(&tool_registry);
+        xiaolin_agent::builtin_tools::register_recall_tools(&tool_registry);
         let todo_store = xiaolin_agent::builtin_tools::TodoStore::new();
         xiaolin_agent::builtin_tools::register_todo_tools(&tool_registry, todo_store.clone());
 

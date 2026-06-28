@@ -89,6 +89,11 @@ pub struct ToolDispatcher {
     runtime_registry: Arc<RuntimeRegistry>,
     orchestrator: Arc<ToolOrchestrator>,
     hooks: Vec<Arc<dyn ToolHook>>,
+    /// Optional output asset store for recall tools (Phase 3+).
+    /// When set, the dispatcher wraps unguarded tool execution in
+    /// `recall::with_output_store` so recall tools can access session-scoped assets.
+    /// Set directly by `turn_setup`.
+    pub tool_output_store: Option<Arc<xiaolin_session::tool_output_store::ToolOutputAssetStore>>,
 }
 
 impl ToolDispatcher {
@@ -102,6 +107,7 @@ impl ToolDispatcher {
             runtime_registry,
             orchestrator,
             hooks: Vec::new(),
+            tool_output_store: None,
         }
     }
 
@@ -221,6 +227,7 @@ impl ToolDispatcher {
         // them without the mutable context by using a temporary context per call.
         if !concurrent_indices.is_empty() {
             let session_id_for_concurrent = ctx.session_id.map(|s| s.to_owned());
+            let captured_output_store = self.tool_output_store.clone();
             let hooks = &self.hooks;
             let agent_id = ctx.agent_id.to_string();
             let concurrent_futures: Vec<_> = concurrent_indices
@@ -233,6 +240,7 @@ impl ToolDispatcher {
                     let mode_state_current = ctx.mode_state.map(|ms| ms.current_mode());
                     let plan_fp = ctx.plan_file_path.clone();
                     let sid = session_id_for_concurrent.clone();
+                    let output_store = captured_output_store.clone();
                     let hooks = hooks.clone();
                     let agent_id = agent_id.clone();
                     async move {
@@ -294,12 +302,26 @@ impl ToolDispatcher {
                             mode_state_current,
                             plan_fp.as_ref(),
                         );
+                        // Phase 3: wrap with output store for recall tools
+                        let scoped_fut = if let (Some(store), Some(ref sid_val)) =
+                            (&output_store, &sid)
+                        {
+                            futures::future::Either::Left(
+                                crate::builtin_tools::recall::with_output_store(
+                                    store.clone(),
+                                    sid_val.clone(),
+                                    tool_fut,
+                                ),
+                            )
+                        } else {
+                            futures::future::Either::Right(tool_fut)
+                        };
                         let result = if let Some(s) = sid {
                             crate::subagent::SUBAGENT_SESSION_ID
-                                .scope(s, tool_fut)
+                                .scope(s, scoped_fut)
                                 .await
                         } else {
-                            tool_fut.await
+                            scoped_fut.await
                         };
                         let latency_ms = start.elapsed().as_millis() as u64;
 
@@ -623,19 +645,34 @@ impl ToolDispatcher {
 
         match self.tool_registry.get(&tc.function.name) {
             Some(tool) => {
-                let tool_fut = with_file_access_mode(
+                let raw_tool_fut = with_file_access_mode(
                     ctx.behavior.file_access,
                     with_additional_allowed_paths(
                         extra_paths,
                         with_work_dir(work_dir_path, tool.execute(&tc.function.arguments)),
                     ),
                 );
+                // Phase 3: wrap with output store BEFORE any await so recall
+                // tools see the task-local store when they execute.
+                let scoped_fut = if let (Some(store), Some(sid)) =
+                    (&self.tool_output_store, ctx.session_id)
+                {
+                    futures::future::Either::Left(
+                        crate::builtin_tools::recall::with_output_store(
+                            store.clone(),
+                            sid.to_owned(),
+                            raw_tool_fut,
+                        ),
+                    )
+                } else {
+                    futures::future::Either::Right(raw_tool_fut)
+                };
                 if let Some(sid) = ctx.session_id {
                     crate::subagent::SUBAGENT_SESSION_ID
-                        .scope(sid.to_owned(), tool_fut)
+                        .scope(sid.to_owned(), scoped_fut)
                         .await
                 } else {
-                    tool_fut.await
+                    scoped_fut.await
                 }
             }
             None => ToolResult::err(format!("tool not found: {}", tc.function.name)),

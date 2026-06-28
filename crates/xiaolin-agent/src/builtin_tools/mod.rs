@@ -9,6 +9,7 @@ mod media;
 mod memory;
 pub mod plan_file;
 pub mod plan_mode;
+pub mod recall;
 mod request_permissions;
 mod screenshot;
 mod session;
@@ -54,6 +55,9 @@ pub use plan_file::PlanFileStore;
 pub use plan_mode::{
     current_plan_context, current_session_mode, with_session_mode, EnterPlanModeTool,
     ExecutionModeState, ExitPlanModeTool, PlanContext, SessionModeRegistry,
+};
+pub use recall::{
+    with_output_store, OutputReadTool, OutputSearchTool, OutputSummaryTool, OutputTailTool,
 };
 pub use request_permissions::RequestPermissionsTool;
 pub use screenshot::{register_screenshot_tool, ScreenshotTool};
@@ -312,4 +316,14 @@ pub fn register_goal_tools(registry: &ToolRegistry, store: Arc<GoalStore>) {
     registry.register(Arc::new(GetGoalTool::new(store.clone())));
     registry.register(Arc::new(CreateGoalTool::new(store.clone())));
     registry.register(Arc::new(UpdateGoalTool::new(store)));
+}
+
+/// Register tool output recall tools (output_read, output_search, output_tail, output_summary).
+/// Registered as deferred — available via ToolSearchTool or when the active prompt
+/// guidance tells the model about handle-based recovery.
+pub fn register_recall_tools(registry: &ToolRegistry) {
+    registry.register_deferred(Arc::new(recall::OutputReadTool));
+    registry.register_deferred(Arc::new(recall::OutputSearchTool));
+    registry.register_deferred(Arc::new(recall::OutputTailTool));
+    registry.register_deferred(Arc::new(recall::OutputSummaryTool));
 }

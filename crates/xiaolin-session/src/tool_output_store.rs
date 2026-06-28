@@ -715,6 +715,10 @@ const DEFAULT_BLOB_PAGE_SIZE: usize = 4096;
 
 /// SQLite-backed store for tool output asset metadata, plus filesystem blob
 /// and index storage.
+///
+/// Note: `Debug` is derived explicitly (not automatically via sqlx) to support
+/// embedding in config structs in downstream crates.
+#[derive(Debug)]
 pub struct ToolOutputAssetStore {
     pool: SqlitePool,
 }

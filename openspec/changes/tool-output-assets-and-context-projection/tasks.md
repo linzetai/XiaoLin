@@ -20,13 +20,13 @@
 
 ## 3. Recall Tools
 
-- [ ] 3.1 Implement `output_read` with line range, byte range, and page-based reads plus stable pagination metadata.
-- [ ] 3.2 Implement `output_search` with bounded match results, context lines, total count when available, and continuation guidance.
-- [ ] 3.3 Implement `output_tail` with line-count bounds and shell/test status metadata.
-- [ ] 3.4 Implement `output_summary` using typed projectors with generic fallback.
-- [ ] 3.5 Register recall tools in the built-in tool registry and add concise prompt guidance for handle-based recovery.
-- [ ] 3.6 Enforce session-scoped authorization and non-disclosing errors for unauthorized handles.
-- [ ] 3.7 Add unit and integration tests for successful recall, expired handles, missing handles, unauthorized cross-session access, paging, search overflow, and tail output.
+- [x] 3.1 Implement `output_read` with line range, byte range, and page-based reads plus stable pagination metadata.
+- [x] 3.2 Implement `output_search` with bounded match results, context lines, total count when available, and continuation guidance.
+- [x] 3.3 Implement `output_tail` with line-count bounds and shell/test status metadata.
+- [x] 3.4 Implement `output_summary` using typed projectors with generic fallback.
+- [x] 3.5 Register recall tools in the built-in tool registry and add concise prompt guidance for handle-based recovery.
+- [x] 3.6 Enforce session-scoped authorization and non-disclosing errors for unauthorized handles.
+- [x] 3.7 Add unit and integration tests for successful recall, expired handles, missing handles, unauthorized cross-session access, paging, search overflow, and tail output.
 
 ## 4. Typed Output Projectors
 

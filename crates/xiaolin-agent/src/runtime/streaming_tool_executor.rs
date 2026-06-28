@@ -55,6 +55,8 @@ pub struct StreamingExecutorConfig {
     pub plan_file_path: Option<std::path::PathBuf>,
     /// Session ID to propagate into spawned tool tasks for sub-agent routing.
     pub session_id: Option<String>,
+    /// Optional output asset store for recall tools (Phase 3+).
+    pub tool_output_store: Option<Arc<xiaolin_session::tool_output_store::ToolOutputAssetStore>>,
 }
 
 impl Default for StreamingExecutorConfig {
@@ -66,6 +68,7 @@ impl Default for StreamingExecutorConfig {
             execution_mode: None,
             plan_file_path: None,
             session_id: None,
+            tool_output_store: None,
         }
     }
 }
@@ -156,6 +159,7 @@ impl StreamingToolExecutor {
         let captured_interaction_handle = crate::builtin_tools::TASK_INTERACTION_HANDLE
             .try_with(|h| h.clone())
             .ok();
+        let captured_output_store = self.config.tool_output_store.clone();
 
         let handle = tokio::spawn(async move {
             if cancel.is_cancelled() {
@@ -223,9 +227,9 @@ impl StreamingToolExecutor {
                     } else {
                         futures::future::Either::Right(tool_fut)
                     };
-                    let with_sid = if let Some(sid) = captured_session_id {
+                    let with_sid = if let Some(ref sid) = captured_session_id {
                         futures::future::Either::Left(
-                            crate::subagent::SUBAGENT_SESSION_ID.scope(sid, with_mode),
+                            crate::subagent::SUBAGENT_SESSION_ID.scope(sid.clone(), with_mode),
                         )
                     } else {
                         futures::future::Either::Right(with_mode)
@@ -237,10 +241,25 @@ impl StreamingToolExecutor {
                     } else {
                         futures::future::Either::Right(with_sid)
                     };
-                    if let Some(key) = captured_stream_key {
-                        crate::builtin_tools::ASK_QUESTION_STREAM_KEY.scope(key, with_ih).await
+                    let with_sk = if let Some(key) = captured_stream_key {
+                        futures::future::Either::Left(
+                            crate::builtin_tools::ASK_QUESTION_STREAM_KEY.scope(key, with_ih),
+                        )
                     } else {
-                        with_ih.await
+                        futures::future::Either::Right(with_ih)
+                    };
+                    // Phase 3: wrap with output store for recall tools
+                    if let (Some(store), Some(sid)) = (
+                        captured_output_store.as_ref(),
+                        captured_session_id.as_ref(),
+                    ) {
+                        crate::builtin_tools::recall::with_output_store(
+                            store.clone(),
+                            sid.clone(),
+                            with_sk,
+                        ).await
+                    } else {
+                        with_sk.await
                     }
                 } => r,
             };
@@ -759,6 +778,7 @@ mod tests {
             execution_mode: None,
             plan_file_path: None,
             session_id: None,
+            tool_output_store: None,
         };
         let mut executor = StreamingToolExecutor::new(registry, config);
 
