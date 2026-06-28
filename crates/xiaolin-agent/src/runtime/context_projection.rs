@@ -51,10 +51,12 @@ pub(crate) struct ProjectionBudget {
     pub projected_count: usize,
     /// Number of tool outputs left inline (small enough).
     pub inline_count: usize,
+    /// Number of tool outputs that fell back to handle-only (budget exhausted).
+    pub handle_only_count: usize,
 }
 
 impl ProjectionBudget {
-    /// Record a projection decision.
+    /// Record a projection decision (typed summary / excerpt).
     pub fn record_projection(&mut self, raw_bytes: usize, projected: &Projection) {
         self.raw_bytes += raw_bytes;
         self.raw_tokens_estimate += raw_bytes / 4;
@@ -70,6 +72,19 @@ impl ProjectionBudget {
         self.raw_bytes += raw_bytes;
         self.raw_tokens_estimate += raw_bytes / 4;
         self.inline_count += 1;
+    }
+
+    /// Record a handle-only fallback (budget exhausted).
+    ///
+    /// The raw output was replaced with a minimal `[output stored — handle:…]`
+    /// stub. The estimated tokens saved is the raw token estimate minus a
+    /// small fixed cost for the stub (~30 tokens).
+    pub fn record_handle_only_fallback(&mut self, raw_bytes: usize) {
+        self.raw_bytes += raw_bytes;
+        self.raw_tokens_estimate += raw_bytes / 4;
+        let stub_cost = 30; // ~120 bytes for "[output stored — handle: …]\n…"
+        self.tokens_saved += (raw_bytes / 4).saturating_sub(stub_cost);
+        self.handle_only_count += 1;
     }
 }
 
@@ -138,6 +153,7 @@ impl ContextProjectionPipeline {
     }
 
     /// Clear accumulated state for a new pass.
+    #[allow(dead_code)] // kept for API completeness; pipeline is re-created per pass currently
     pub fn reset(&mut self) {
         self.budget = ProjectionBudget::default();
         self.projected_handles.clear();
@@ -230,7 +246,7 @@ impl ContextProjectionPipeline {
                         let content =
                             build_handle_only(msg.name.as_deref().unwrap_or("unknown"), h);
                         msg.content = Some(serde_json::Value::String(content));
-                        self.budget.record_inline(raw_bytes);
+                        self.budget.record_handle_only_fallback(raw_bytes);
                     }
                 }
                 OutputSizeClass::Large => {
@@ -315,6 +331,8 @@ pub fn is_already_projected(text: &str) -> bool {
         || text.starts_with("[recall-available]")
         || text.starts_with("[superseded")
         || text == "[Old tool result content cleared]"
+        // Legacy XML handle
+        || text.contains("<output-handle>")
     {
         return true;
     }

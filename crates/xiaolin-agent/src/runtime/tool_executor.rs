@@ -711,6 +711,7 @@ pub(crate) fn is_already_compacted(text: &str) -> bool {
         || text.starts_with("[text output — handle:")
         || text.starts_with("[output_summary:")
         || text.starts_with("[output stored — handle:")
+        || text.contains("<output-handle>")
 }
 
 /// Build a semantic summary header from tool name, arguments, and output metadata.

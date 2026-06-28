@@ -1373,7 +1373,8 @@ impl ContextHook for ContentFilterHook {
                         || t.starts_with("[JSON/structured output — handle:")
                         || t.starts_with("[text output — handle:")
                         || t.starts_with("[output_summary:")
-                        || t.starts_with("[output stored — handle:");
+                        || t.starts_with("[output stored — handle:")
+                        || t.contains("<output-handle>");
                     if !already_compressed && t.chars().count() > max {
                         let truncated: String = t.chars().take(max).collect();
                         let removed = t.chars().count() - max;
