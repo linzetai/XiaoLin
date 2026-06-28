@@ -690,6 +690,9 @@ const SUPERSEDED_MARKER_PREFIX: &str = "[superseded";
 /// This is the single source of truth for the marker set. Mirrors exist in
 /// `xiaolin-context/src/engine.rs` (ContentFilterHook) as a copy with a
 /// pointer comment to avoid a reverse dependency.
+/// Phase 5: also recognizes projection-format markers from
+/// `ContextProjectionPipeline` so asset-backed projected outputs
+/// survive post-tool microcompact without nested truncation markers.
 pub(crate) fn is_already_compacted(text: &str) -> bool {
     text.starts_with(ONELINER_MARKER)
         || text.starts_with(FADED_MARKER)
@@ -698,6 +701,16 @@ pub(crate) fn is_already_compacted(text: &str) -> bool {
         || text.starts_with(RECALL_HINT_MARKER)
         || text.starts_with(SUPERSEDED_MARKER_PREFIX)
         || text == TOOL_RESULT_CLEARED_MESSAGE
+        // Projection-format markers (sync with context_projection::is_already_projected)
+        || text.starts_with("[shell/test output — handle:")
+        || text.starts_with("[file read output — handle:")
+        || text.starts_with("[search/grep output — handle:")
+        || text.starts_with("[directory listing — handle:")
+        || text.starts_with("[browser snapshot — handle:")
+        || text.starts_with("[JSON/structured output — handle:")
+        || text.starts_with("[text output — handle:")
+        || text.starts_with("[output_summary:")
+        || text.starts_with("[output stored — handle:")
 }
 
 /// Build a semantic summary header from tool name, arguments, and output metadata.

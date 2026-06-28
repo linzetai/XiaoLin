@@ -30,6 +30,7 @@ pub mod cache_break_detection;
 pub mod context_assembly;
 pub(crate) mod context_budget;
 pub(crate) mod context_compressor;
+pub(crate) mod context_projection;
 pub mod cost_tracker;
 pub(crate) mod end_turn;
 pub mod file_persistence;

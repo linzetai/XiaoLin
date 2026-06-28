@@ -4,6 +4,7 @@ use xiaolin_core::types::ChatMessage;
 
 use super::context_budget::{apply_token_budget, BudgetConfig};
 use super::context_compressor;
+use super::context_projection::ContextProjectionPipeline;
 use super::post_compact_restore::RestorationState;
 use super::session_memory;
 use super::tool_executor::{
@@ -253,6 +254,33 @@ pub(crate) async fn unified_pre_query_compact(
                 .rposition(|m| matches!(m.role, xiaolin_core::types::Role::User))
                 .unwrap_or(messages.len());
             messages.insert(insert_pos, manifest_msg);
+        }
+    }
+
+    // Step 2.7: Context projection pipeline — replace large tool outputs with
+    // typed projections under token budget. This is the single owner of
+    // model-visible output projection. After this step, ContentFilterHook
+    // will recognize already-projected content and avoid re-truncation.
+    {
+        let mut proj_pipeline = ContextProjectionPipeline::new();
+        // Allocate ~20% of context window for tool output projections.
+        let proj_budget = (context_window as usize) / 5;
+        proj_pipeline.set_projection_budget(proj_budget);
+        let before_tokens = xiaolin_context::estimate_messages_tokens(messages);
+        proj_pipeline.project_messages(messages);
+        let after_tokens = xiaolin_context::estimate_messages_tokens(messages);
+        let budget = proj_pipeline.budget();
+        if budget.projected_count > 0 {
+            tracing::info!(
+                projected_count = budget.projected_count,
+                inline_count = budget.inline_count,
+                raw_tokens = budget.raw_tokens_estimate,
+                projected_tokens = budget.projected_tokens_estimate,
+                tokens_saved = budget.tokens_saved,
+                tokens_before = before_tokens,
+                tokens_after = after_tokens,
+                "context projection pipeline applied typed projections"
+            );
         }
     }
 

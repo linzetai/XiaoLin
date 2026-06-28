@@ -41,15 +41,15 @@
 
 ## 5. Context Projection Pipeline
 
-- [ ] 5.1 Introduce `ContextProjectionPipeline` as the single owner of model-visible output projection under token budget.
-- [ ] 5.2 Route pre-query context assembly through the projection pipeline before LLM calls.
-- [ ] 5.3 Change post-tool processing so it records metrics and iteration state but does not destructively microcompact fresh asset-backed outputs.
-- [ ] 5.4 Change `ContentFilterHook` so asset manifests, typed summaries, recalled excerpts, and legacy projections are treated as bounded content and not re-truncated under normal conditions.
-- [ ] 5.5 Change hard context fitting to drop recoverable projections before active task instructions, current user input, or non-recoverable state.
-- [ ] 5.6 Add projection budget accounting for raw tokens, projected tokens, and saved tokens.
-- [ ] 5.7 Implement adaptive projection policy so small outputs stay inline, medium relevant outputs keep key content, large outputs use typed summary plus handle, and handle-only manifests are a last resort.
-- [ ] 5.8 Add tests that pass one large output through post-tool, pre-query, content filter, and hard-fit paths without nested truncation markers.
-- [ ] 5.9 Add tests proving bounded failed command output and small search results are visible inline without requiring immediate recall.
+- [x] 5.1 Introduce `ContextProjectionPipeline` as the single owner of model-visible output projection under token budget.
+- [x] 5.2 Route pre-query context assembly through the projection pipeline before LLM calls.
+- [x] 5.3 Change post-tool processing so it records metrics and iteration state but does not destructively microcompact fresh asset-backed outputs.
+- [x] 5.4 Change `ContentFilterHook` so asset manifests, typed summaries, recalled excerpts, and legacy projections are treated as bounded content and not re-truncated under normal conditions.
+- [x] 5.5 Change hard context fitting to drop recoverable projections before active task instructions, current user input, or non-recoverable state.
+- [x] 5.6 Add projection budget accounting for raw tokens, projected tokens, and saved tokens.
+- [x] 5.7 Implement adaptive projection policy so small outputs stay inline, medium relevant outputs keep key content, large outputs use typed summary plus handle, and handle-only manifests are a last resort.
+- [x] 5.8 Add tests that pass one large output through post-tool, pre-query, content filter, and hard-fit paths without nested truncation markers.
+- [x] 5.9 Add tests proving bounded failed command output and small search results are visible inline without requiring immediate recall.
 
 ## 6. Auto-Compact And Prompt Behavior
 

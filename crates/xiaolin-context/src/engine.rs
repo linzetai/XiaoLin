@@ -1104,7 +1104,39 @@ impl ContextEngine {
             return estimated;
         }
 
-        // Phase 3: Hard sliding-window truncation — keep system msgs + last N non-system
+        // Phase 3: Hard sliding-window truncation — keep system msgs + last N non-system.
+        // Phase 5: drop recoverable projections (tool outputs with projection
+        // markers or output handles) before active task instructions, current
+        // user input, or non-recoverable state.
+        //
+        // Two-pass approach preserves conversation order:
+        //  Pass 1 — keep non-projected messages (user, assistant, raw tool).
+        //  Pass 2 — fill remaining budget with projected (recoverable) messages.
+        let is_projected_output = |msg: &ChatMessage| -> bool {
+            if !matches!(msg.role, Role::Tool) {
+                return false;
+            }
+            msg.text_content().is_some_and(|t| {
+                t.starts_with("[faded]")
+                    || t.starts_with("[time-compacted]")
+                    || t.starts_with("[summarized]")
+                    || t.starts_with("[oneliner]")
+                    || t.starts_with("[recall-available]")
+                    || t.starts_with("[superseded")
+                    || t == "[Old tool result content cleared]"
+                    || t.starts_with("[shell/test output — handle:")
+                    || t.starts_with("[file read output — handle:")
+                    || t.starts_with("[search/grep output — handle:")
+                    || t.starts_with("[directory listing — handle:")
+                    || t.starts_with("[browser snapshot — handle:")
+                    || t.starts_with("[JSON/structured output — handle:")
+                    || t.starts_with("[text output — handle:")
+                    || t.starts_with("[output_summary:")
+                    || t.starts_with("[output stored — handle:")
+                    || t.contains("<output-handle>")
+            })
+        };
+
         let (system_msgs, conversation): (Vec<_>, Vec<_>) = messages
             .iter()
             .partition(|m| matches!(m.role, Role::System));
@@ -1117,7 +1149,17 @@ impl ContextEngine {
             .sum();
         let remaining = budget.saturating_sub(system_tokens);
 
+        // Collect projected messages in reverse order (most recent first) for
+        // the second-pass fill. This preserves conversation order while
+        // prioritizing non-projectable content.
+        let mut deferred_projected: Vec<ChatMessage> = Vec::new();
+
+        // Pass 1: keep non-projected messages (most recent first).
         for msg in conversation.iter().rev() {
+            if is_projected_output(msg) {
+                deferred_projected.push((*msg).clone());
+                continue;
+            }
             let cost = crate::compressor::estimate_messages_tokens(std::slice::from_ref(*msg));
             if used + cost > remaining && !kept.is_empty() {
                 break;
@@ -1125,6 +1167,17 @@ impl ContextEngine {
             kept.push((*msg).clone());
             used += cost;
         }
+
+        // Pass 2: fill remaining budget with projected messages (most recent first).
+        for msg in deferred_projected {
+            let cost = crate::compressor::estimate_messages_tokens(std::slice::from_ref(&msg));
+            if used + cost > remaining {
+                break;
+            }
+            kept.push(msg);
+            used += cost;
+        }
+
         kept.reverse();
 
         let mut final_msgs: Vec<ChatMessage> = system_msgs.into_iter().cloned().collect();
@@ -1300,16 +1353,27 @@ impl ContextHook for ContentFilterHook {
                     // (≤4000 chars), and re-truncating them would nest markers
                     // (e.g. `[faded] …\n…(N chars truncated)`) which the LLM
                     // interprets as cascading data loss.
-                    // Mirror of `tool_executor::is_already_compacted`; kept
-                    // duplicated here to avoid a reverse dependency from
-                    // xiaolin-context on xiaolin-agent.
+                    //
+                    // Phase 5: also recognize projection-format markers from
+                    // ContextProjectionPipeline so projected content is treated
+                    // as bounded and not re-truncated under normal conditions.
                     let already_compressed = t.starts_with("[faded]")
                         || t.starts_with("[time-compacted]")
                         || t.starts_with("[summarized]")
                         || t.starts_with("[oneliner]")
                         || t.starts_with("[recall-available]")
                         || t.starts_with("[superseded")
-                        || t == "[Old tool result content cleared]";
+                        || t == "[Old tool result content cleared]"
+                        // Projection-format markers
+                        || t.starts_with("[shell/test output — handle:")
+                        || t.starts_with("[file read output — handle:")
+                        || t.starts_with("[search/grep output — handle:")
+                        || t.starts_with("[directory listing — handle:")
+                        || t.starts_with("[browser snapshot — handle:")
+                        || t.starts_with("[JSON/structured output — handle:")
+                        || t.starts_with("[text output — handle:")
+                        || t.starts_with("[output_summary:")
+                        || t.starts_with("[output stored — handle:");
                     if !already_compressed && t.chars().count() > max {
                         let truncated: String = t.chars().take(max).collect();
                         let removed = t.chars().count() - max;
