@@ -303,19 +303,18 @@ impl ToolDispatcher {
                             plan_fp.as_ref(),
                         );
                         // Phase 3: wrap with output store for recall tools
-                        let scoped_fut = if let (Some(store), Some(ref sid_val)) =
-                            (&output_store, &sid)
-                        {
-                            futures::future::Either::Left(
-                                crate::builtin_tools::recall::with_output_store(
-                                    store.clone(),
-                                    sid_val.clone(),
-                                    tool_fut,
-                                ),
-                            )
-                        } else {
-                            futures::future::Either::Right(tool_fut)
-                        };
+                        let scoped_fut =
+                            if let (Some(store), Some(ref sid_val)) = (&output_store, &sid) {
+                                futures::future::Either::Left(
+                                    crate::builtin_tools::recall::with_output_store(
+                                        store.clone(),
+                                        sid_val.clone(),
+                                        tool_fut,
+                                    ),
+                                )
+                            } else {
+                                futures::future::Either::Right(tool_fut)
+                            };
                         let result = if let Some(s) = sid {
                             crate::subagent::SUBAGENT_SESSION_ID
                                 .scope(s, scoped_fut)
@@ -657,13 +656,11 @@ impl ToolDispatcher {
                 let scoped_fut = if let (Some(store), Some(sid)) =
                     (&self.tool_output_store, ctx.session_id)
                 {
-                    futures::future::Either::Left(
-                        crate::builtin_tools::recall::with_output_store(
-                            store.clone(),
-                            sid.to_owned(),
-                            raw_tool_fut,
-                        ),
-                    )
+                    futures::future::Either::Left(crate::builtin_tools::recall::with_output_store(
+                        store.clone(),
+                        sid.to_owned(),
+                        raw_tool_fut,
+                    ))
                 } else {
                     futures::future::Either::Right(raw_tool_fut)
                 };

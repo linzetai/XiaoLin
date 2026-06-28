@@ -312,16 +312,30 @@ async fn process_tool_output(
             };
             match store.create_asset(input).await {
                 Ok(handle) => {
-                    let (preview, has_more) =
-                        tool_result_storage::generate_preview(&output, tool_result_storage::PREVIEW_SIZE_BYTES);
-                    let msg = tool_result_storage::build_handle_replacement_message(
-                        handle.as_str(),
-                        tool_name,
-                        output.len(),
-                        &preview,
-                        has_more,
-                        "large",
-                    );
+                    // Use the projector registry to produce a typed projection
+                    let msg = match store.get_asset(handle.as_str(), sid).await {
+                        Ok(asset) => {
+                            let projection =
+                                xiaolin_session::tool_output_projector::PROJECTOR_REGISTRY
+                                    .project(&asset, &output);
+                            projection.format()
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = ?e, handle = handle.as_str(), "get_asset failed after create, using fallback message");
+                            let (preview, has_more) = tool_result_storage::generate_preview(
+                                &output,
+                                tool_result_storage::PREVIEW_SIZE_BYTES,
+                            );
+                            tool_result_storage::build_handle_replacement_message(
+                                handle.as_str(),
+                                tool_name,
+                                output.len(),
+                                &preview,
+                                has_more,
+                                "large",
+                            )
+                        }
+                    };
                     tracing::info!(
                         handle = handle.as_str(),
                         tool = tool_name,

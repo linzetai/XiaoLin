@@ -5,6 +5,7 @@ mod models;
 mod runtime_quality_store;
 mod search_index;
 mod store;
+pub mod tool_output_projector;
 pub mod tool_output_store;
 
 pub use artifact_store::{ArtifactStore, FileArtifactRecord, SqliteArtifactStore};

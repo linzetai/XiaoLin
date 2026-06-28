@@ -250,6 +250,7 @@ impl ProjectorKind {
             "Bash" | "shell" | "shell_exec" | "run_command" | "exec" => ProjectorKind::ShellTest,
             "Glob" | "ls" | "list_dir" | "list_directory" => ProjectorKind::DirectoryTree,
             "mcp__browser" | "browser" | "TakeSnapshot" => ProjectorKind::BrowserSnapshot,
+            _ if tool_name.starts_with("mcp__") => ProjectorKind::JsonDefault,
             _ => ProjectorKind::GenericText,
         }
     }
@@ -1126,9 +1127,14 @@ impl ToolOutputAssetStore {
                 RecallError::internal(asset.handle.as_str(), &format!("Failed to seek blob: {e}"))
             })?;
         let mut buf = vec![0u8; len];
-        tokio::io::AsyncReadExt::read_exact(&mut file, &mut buf).await.map_err(|e| {
-            RecallError::internal(asset.handle.as_str(), &format!("Failed to read blob range: {e}"))
-        })?;
+        tokio::io::AsyncReadExt::read_exact(&mut file, &mut buf)
+            .await
+            .map_err(|e| {
+                RecallError::internal(
+                    asset.handle.as_str(),
+                    &format!("Failed to read blob range: {e}"),
+                )
+            })?;
         // Read as UTF-8, falling back to lossy if invalid
         let s = String::from_utf8_lossy(&buf).into_owned();
         Ok(s)

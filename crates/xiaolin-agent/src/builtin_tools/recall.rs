@@ -24,9 +24,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use xiaolin_core::tool::{
-    Tool, ToolExposure, ToolKind, ToolParameterSchema, ToolResult,
-};
+use xiaolin_core::tool::{Tool, ToolExposure, ToolKind, ToolParameterSchema, ToolResult};
 use xiaolin_session::tool_output_store::ToolOutputAssetStore;
 
 // ============================================================================
@@ -80,12 +78,10 @@ async fn authorize_handle(
     ),
     ToolResult,
 > {
-    let store = current_store().ok_or_else(|| {
-        ToolResult::err("output asset store not available for this session")
-    })?;
-    let session_id = current_session_id().ok_or_else(|| {
-        ToolResult::err("session id not available for recall authorization")
-    })?;
+    let store = current_store()
+        .ok_or_else(|| ToolResult::err("output asset store not available for this session"))?;
+    let session_id = current_session_id()
+        .ok_or_else(|| ToolResult::err("session id not available for recall authorization"))?;
 
     let asset = store
         .get_asset(handle, &session_id)
@@ -124,9 +120,7 @@ fn format_line_read(
     // Pagination metadata
     let mut nav = Vec::new();
     if has_before {
-        let prev_start = start_line
-            .saturating_sub(end_line - start_line + 1)
-            .max(1);
+        let prev_start = start_line.saturating_sub(end_line - start_line + 1).max(1);
         nav.push(format!(
             "use output_read with start_line={prev_start} for previous lines"
         ));
@@ -301,10 +295,7 @@ Pagination metadata is included so you can navigate forward/backward."
                     ))
                 }
             };
-            let content = match store
-                .read_blob_range(&asset, &session_id, start, end)
-                .await
-            {
+            let content = match store.read_blob_range(&asset, &session_id, start, end).await {
                 Ok(c) => c,
                 Err(e) => return ToolResult::err(format!("{e}")),
             };
@@ -338,9 +329,7 @@ Pagination metadata is included so you can navigate forward/backward."
             let end = match args.get("end_byte").and_then(|v| v.as_u64()) {
                 Some(e) => e as usize,
                 None => {
-                    return ToolResult::err(
-                        "end_byte is required when start_byte is specified",
-                    )
+                    return ToolResult::err("end_byte is required when start_byte is specified")
                 }
             };
             // Cap: refuse byte ranges exceeding MAX_BYTE_RANGE to satisfy "bounded" spec
@@ -391,7 +380,7 @@ Pagination metadata is included so you can navigate forward/backward."
             return ToolResult::err(
                 "output_read requires a bounded selector (page, start_byte/end_byte, or \
                  start_line/end_line). Use output_tail for the last N lines, \
-                 output_search to find patterns, or output_summary for an overview."
+                 output_search to find patterns, or output_summary for an overview.",
             );
         }
 
@@ -422,19 +411,16 @@ Pagination metadata is included so you can navigate forward/backward."
             Err(e) => return ToolResult::err(format!("{e}")),
         };
 
-        let (byte_start, byte_end) = match line_idx.line_range_span(
-            start_line,
-            end_line + 1,
-            total_bytes,
-        ) {
-            Some(r) => r,
-            None => {
-                return ToolResult::err(format!(
-                    "Line range {start_line}-{end_line} is out of bounds. \
+        let (byte_start, byte_end) =
+            match line_idx.line_range_span(start_line, end_line + 1, total_bytes) {
+                Some(r) => r,
+                None => {
+                    return ToolResult::err(format!(
+                        "Line range {start_line}-{end_line} is out of bounds. \
                      The output has {total_lines} lines."
-                ))
-            }
-        };
+                    ))
+                }
+            };
 
         let content = match store
             .read_blob_range(&asset, &session_id, byte_start, byte_end)
@@ -612,9 +598,7 @@ already-captured output."
             .await
         {
             Ok(c) => c,
-            Err(e) => {
-                return ToolResult::err(format!("Failed to read output blob: {e}"))
-            }
+            Err(e) => return ToolResult::err(format!("Failed to read output blob: {e}")),
         };
 
         // Collect matching line indices
@@ -754,11 +738,8 @@ Returns:\n\
             None => return ToolResult::err("Missing required parameter: handle"),
         };
 
-        let line_count = (args
-            .get("lines")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50) as usize)
-            .min(TAIL_MAX_LINES);
+        let line_count =
+            (args.get("lines").and_then(|v| v.as_u64()).unwrap_or(50) as usize).min(TAIL_MAX_LINES);
 
         let (store, asset, session_id) = match authorize_handle(handle).await {
             Ok(t) => t,
@@ -803,14 +784,11 @@ Returns:\n\
             Err(e) => return ToolResult::err(format!("{e}")),
         };
 
-        let (byte_start, byte_end) = match line_idx.line_range_span(
-            start_line,
-            total_lines + 1,
-            total_bytes,
-        ) {
-            Some(r) => r,
-            None => return ToolResult::err("Failed to compute tail byte range"),
-        };
+        let (byte_start, byte_end) =
+            match line_idx.line_range_span(start_line, total_lines + 1, total_bytes) {
+                Some(r) => r,
+                None => return ToolResult::err("Failed to compute tail byte range"),
+            };
 
         let content = match store
             .read_blob_range(&asset, &session_id, byte_start, byte_end)
@@ -884,14 +862,9 @@ impl Tool for OutputSummaryTool {
 
     fn prompt(&self) -> String {
         "\
-Get a typed summary of a stored tool output. The summary format depends on \
-the output type:\n\
-\n\
-- Shell/test: command, exit status, failure indicators, tail excerpt\n\
-- File read: path, byte/line counts, head excerpt\n\
-- Search/grep: pattern, match counts, top matches\n\
-- Directory listing: path, entry counts, sample entries\n\
-- Generic text: byte/line counts, head/tail excerpts\n\
+Get a typed summary of a stored tool output. Returns metadata only \
+(no raw content loaded). The summary includes tool name, exit status \
+(for shell/test), byte/line/token counts, and recall guidance.\n\
 \n\
 Use this to quickly understand what a handle contains without reading \
 the full output. For precise content, use output_read, output_search, \
@@ -920,51 +893,13 @@ or output_tail."
     }
 }
 
-/// Build a typed summary for an asset using its projector kind.
-fn build_typed_summary(
-    asset: &xiaolin_session::tool_output_store::ToolOutputAsset,
-) -> String {
-    use xiaolin_session::tool_output_store::ProjectorKind;
-
-    let handle = asset.handle.as_str();
-    let tool = &asset.tool_name;
-    let bytes = asset.byte_count;
-    let lines = asset.line_count;
-    let est_tokens = asset.estimated_tokens;
-
-    // Data-driven: each variant maps to (type_label, show_status, suggest_tail, suggest_search).
-    let (type_label, show_status, suggest_tail, suggest_search) = match asset.projector_kind {
-        ProjectorKind::ShellTest       => ("shell/test output",      true,  true,  true),
-        ProjectorKind::ReadFile        => ("file read output",       false, false, true),
-        ProjectorKind::Search          => ("search/grep output",     false, false, true),
-        ProjectorKind::DirectoryTree   => ("directory listing",      false, false, true),
-        ProjectorKind::BrowserSnapshot => ("browser snapshot",       false, false, true),
-        ProjectorKind::JsonDefault     => ("JSON/structured output", false, false, true),
-        ProjectorKind::GenericText     => ("text output",            false, true,  true),
-    };
-
-    let mut parts: Vec<String> = Vec::with_capacity(5);
-    parts.push(format!("[output_summary: {handle}]"));
-    parts.push(format!("Type: {type_label} ({tool})"));
-    if show_status {
-        let status = if asset.success { "success" } else { "FAILED" };
-        parts.push(format!("Status: {status}"));
-    }
-    parts.push(format!(
-        "Size: {bytes} bytes, {lines} lines, ~{est_tokens} tokens"
-    ));
-
-    let mut suggestions: Vec<&str> = Vec::with_capacity(3);
-    if suggest_tail {
-        suggestions.push("Use output_tail to see the end of the output.");
-    }
-    suggestions.push("Use output_read for line-range access.");
-    if suggest_search {
-        suggestions.push("Use output_search to find specific patterns.");
-    }
-    parts.push(suggestions.join(" "));
-
-    parts.join("\n")
+/// Build a typed summary for an asset using the projector registry.
+/// Produces a metadata-only projection (no raw content loaded) for the
+/// `output_summary` recall tool.
+fn build_typed_summary(asset: &xiaolin_session::tool_output_store::ToolOutputAsset) -> String {
+    let projection =
+        xiaolin_session::tool_output_projector::PROJECTOR_REGISTRY.project_metadata_only(asset);
+    projection.format()
 }
 
 // ============================================================================
@@ -1031,18 +966,12 @@ mod tests {
 
     #[test]
     fn all_tools_are_deferred() {
-        assert!(matches!(
-            OutputReadTool.exposure(),
-            ToolExposure::Deferred
-        ));
+        assert!(matches!(OutputReadTool.exposure(), ToolExposure::Deferred));
         assert!(matches!(
             OutputSearchTool.exposure(),
             ToolExposure::Deferred
         ));
-        assert!(matches!(
-            OutputTailTool.exposure(),
-            ToolExposure::Deferred
-        ));
+        assert!(matches!(OutputTailTool.exposure(), ToolExposure::Deferred));
         assert!(matches!(
             OutputSummaryTool.exposure(),
             ToolExposure::Deferred
@@ -1168,11 +1097,7 @@ mod tests {
                 .connect("sqlite::memory:")
                 .await
                 .expect("in-memory pool");
-            let store = Arc::new(
-                ToolOutputAssetStore::open(pool)
-                    .await
-                    .expect("open store"),
-            );
+            let store = Arc::new(ToolOutputAssetStore::open(pool).await.expect("open store"));
             let tmp = TempDir::new().expect("tempdir");
             let content = (0..100u32)
                 .map(|i| format!("line {:03}: record_{i}\n", i))
@@ -1214,9 +1139,7 @@ mod tests {
                 store,
                 "sess_int".into(),
                 &OutputReadTool,
-                &format!(
-                    r#"{{"handle": "{handle}", "start_line": 10, "end_line": 15}}"#
-                ),
+                &format!(r#"{{"handle": "{handle}", "start_line": 10, "end_line": 15}}"#),
             )
             .await;
             assert!(result.success, "{}", result.output);
@@ -1237,10 +1160,7 @@ mod tests {
                 &format!(r#"{{"handle": "{handle}"}}"#),
             )
             .await;
-            assert!(
-                !result.success,
-                "handle-only output_read must be rejected"
-            );
+            assert!(!result.success, "handle-only output_read must be rejected");
             assert!(result.output.contains("bounded selector"));
             assert!(result.output.contains("output_tail"));
             assert!(result.output.contains("output_search"));
@@ -1271,9 +1191,7 @@ mod tests {
                 store,
                 "sess_int".into(),
                 &OutputReadTool,
-                &format!(
-                    r#"{{"handle": "{handle}", "start_line": 1, "end_line": 600}}"#
-                ),
+                &format!(r#"{{"handle": "{handle}", "start_line": 1, "end_line": 600}}"#),
             )
             .await;
             assert!(
@@ -1290,9 +1208,7 @@ mod tests {
                 store,
                 "sess_int".into(),
                 &OutputSearchTool,
-                &format!(
-                    r#"{{"handle": "{handle}", "pattern": "record_42", "context_lines": 1}}"#
-                ),
+                &format!(r#"{{"handle": "{handle}", "pattern": "record_42", "context_lines": 1}}"#),
             )
             .await;
             assert!(result.success, "{}", result.output);
@@ -1360,9 +1276,10 @@ mod tests {
             )
             .await;
             assert!(result.success, "{}", result.output);
-            assert!(result.output.contains("[output_summary:"));
-            assert!(result.output.contains("shell/test"));
+            assert!(result.output.contains("shell/test output"));
             assert!(result.output.contains("FAILED"));
+            assert!(result.output.contains("output_read"));
+            assert!(result.output.contains("output_tail"));
         }
 
         #[tokio::test]
@@ -1372,9 +1289,7 @@ mod tests {
                 store,
                 "other_sess".into(), // Different session
                 &OutputReadTool,
-                &format!(
-                    r#"{{"handle": "{handle}", "start_line": 1, "end_line": 5}}"#
-                ),
+                &format!(r#"{{"handle": "{handle}", "start_line": 1, "end_line": 5}}"#),
             )
             .await;
             assert!(!result.success, "cross-session access must be denied");

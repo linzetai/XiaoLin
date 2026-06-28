@@ -30,14 +30,14 @@
 
 ## 4. Typed Output Projectors
 
-- [ ] 4.1 Define a projector trait/interface that accepts asset metadata and raw/index access without creating crate dependency cycles.
-- [ ] 4.2 Implement `read_file` projector with path, requested range, actual range, freshness metadata when available, representative excerpt, and recall guidance.
-- [ ] 4.3 Implement search/grep projector with pattern/root metadata, match counts, file distribution, representative matches, omitted counts, and `output_search` guidance.
-- [ ] 4.4 Implement shell/test projector with command, exit status, duration when available, failure blocks, warnings/errors, tail excerpt, and handle.
-- [ ] 4.5 Implement directory/tree projector with root path, entry counts, representative entries, omitted counts, and page guidance.
-- [ ] 4.6 Implement JSON/default projector with top-level shape, key/array counts, representative fields, handle, and recall guidance.
-- [ ] 4.7 Implement generic text projector for unknown large output with deterministic head/tail summary and recall guidance.
-- [ ] 4.8 Add snapshot tests for every projector, including stable byte formatting and no volatile timestamps or blob paths in model-visible text.
+- [x] 4.1 Define a projector trait/interface that accepts asset metadata and raw/index access without creating crate dependency cycles.
+- [x] 4.2 Implement `read_file` projector with path, requested range, actual range, freshness metadata when available, representative excerpt, and recall guidance.
+- [x] 4.3 Implement search/grep projector with pattern/root metadata, match counts, file distribution, representative matches, omitted counts, and `output_search` guidance.
+- [x] 4.4 Implement shell/test projector with command, exit status, duration when available, failure blocks, warnings/errors, tail excerpt, and handle.
+- [x] 4.5 Implement directory/tree projector with root path, entry counts, representative entries, omitted counts, and page guidance.
+- [x] 4.6 Implement JSON/default projector with top-level shape, key/array counts, representative fields, handle, and recall guidance.
+- [x] 4.7 Implement generic text projector for unknown large output with deterministic head/tail summary and recall guidance.
+- [x] 4.8 Add snapshot tests for every projector, including stable byte formatting and no volatile timestamps or blob paths in model-visible text.
 
 ## 5. Context Projection Pipeline
 
