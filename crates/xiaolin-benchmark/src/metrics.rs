@@ -297,6 +297,8 @@ mod tests {
             session_id: None,
             final_tool_calls: None,
             reason: Some("completed".into()),
+            diagnosis: None,
+            plan_outcome: None,
         });
         let result = collector.finalize();
         assert_eq!(result.metrics.duration_ms, 5000);

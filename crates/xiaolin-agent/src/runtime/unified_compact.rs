@@ -31,6 +31,9 @@ impl xiaolin_context::collapse::CollapseSummarizer for LlmCollapseSummarizer {
             content: Some(serde_json::json!(
                 "Summarize the following conversation rounds into a concise paragraph. \
                  Preserve key decisions, file paths, tool outputs, and action items. \
+                 When output handles (like \"out_<prefix>_<uuid>\") are present, keep the handle \
+                 reference and note what information it contains and why it matters, \
+                 but do NOT embed large raw output bodies. \
                  Omit greetings, filler, and redundant details."
             )),
             ..Default::default()

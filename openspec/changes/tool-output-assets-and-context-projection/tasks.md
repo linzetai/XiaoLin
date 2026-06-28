@@ -53,11 +53,11 @@
 
 ## 6. Auto-Compact And Prompt Behavior
 
-- [ ] 6.1 Update auto-compact prompt guidance to preserve output handles, task intent, decisions, active plans, touched files, and error state instead of embedding large raw output bodies.
-- [ ] 6.2 Ensure compaction summaries retain why each output handle matters when the compacted history referenced it.
-- [ ] 6.3 Update runtime restoration logic so file/skill/plan restoration coexists with output-handle restoration.
-- [ ] 6.4 Update agent tool guidance to prefer `output_read`, `output_search`, or `output_tail` over rerunning expensive commands when a handle is available.
-- [ ] 6.5 Add tests for compacted histories that retain handle references and allow precise post-compact recall.
+- [x] 6.1 Update auto-compact prompt guidance to preserve output handles, task intent, decisions, active plans, touched files, and error state instead of embedding large raw output bodies.
+- [x] 6.2 Ensure compaction summaries retain why each output handle matters when the compacted history referenced it.
+- [x] 6.3 Update runtime restoration logic so file/skill/plan restoration coexists with output-handle restoration.
+- [x] 6.4 Update agent tool guidance to prefer `output_read`, `output_search`, or `output_tail` over rerunning expensive commands when a handle is available.
+- [x] 6.5 Add tests for compacted histories that retain handle references and allow precise post-compact recall.
 
 ## 7. Provenance And Migration Safety
 

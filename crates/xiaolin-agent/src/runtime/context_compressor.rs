@@ -105,6 +105,13 @@ You MUST include:
 7. Pending Tasks: List all incomplete tasks, TODOs, or follow-up items.
 8. Current Work: Describe what the assistant was doing immediately before this summary — include the exact state of any in-progress operation.
 9. Optional Next Step: If the conversation implies a clear next action, state it with a relevant quote from the original conversation to prevent drift.
+10. Output Handles: For any tool outputs that were stored as recoverable assets (identified by handles like "out_..." in the conversation):
+   - List each handle and the tool that produced it (tool name, key arguments like file path or search pattern)
+   - Briefly note WHY each handle matters (what question it answers, what decision it supports)
+   - Do NOT embed the full raw output content — the handle is sufficient for recovery via recall tools (output_read, output_search, output_tail)
+   - If a handle is referenced in later analysis or decisions, note the connection
+
+IMPORTANT: Do NOT attempt to reproduce large raw tool outputs in the summary. When you see output handles (e.g., "out_a1b2c3d4_550e8400e29b41d4a716446655440000"), reference them by handle and describe what they contain, but do not copy their content. The assistant can use output_read, output_search, or output_tail to recover exact content when needed.
 
 ### Transcript location:
   This is the full JSONL transcript of your past conversation with the user (pre- and post-summary): {{HISTORY_FILE_PATH}}
@@ -126,7 +133,8 @@ IMPORTANT:
 - Include code snippets and file paths verbatim — do not paraphrase them.
 - Quote user instructions exactly when they contain specific requirements.
 - Preserve all numerical values, version numbers, configuration values, and IDs.
-- If a TODO list or task queue was being maintained, reproduce it in full."#;
+- If a TODO list or task queue was being maintained, reproduce it in full.
+- When output handles are present, list them with context — do NOT omit them or their descriptions."#;
 
 #[allow(dead_code)]
 pub struct CompressionResult {
@@ -851,7 +859,7 @@ mod tests {
     }
 
     #[test]
-    fn compression_prompt_has_9_sections() {
+    fn compression_prompt_has_10_sections() {
         let prompt = super::COMPRESSION_SYSTEM_PROMPT;
         assert!(
             prompt.contains("Primary Request"),
@@ -880,6 +888,52 @@ mod tests {
         assert!(prompt.contains("Pending Tasks"), "should include section 7");
         assert!(prompt.contains("Current Work"), "should include section 8");
         assert!(prompt.contains("Next Step"), "should include section 9");
+        assert!(
+            prompt.contains("Output Handles"),
+            "should include section 10"
+        );
+    }
+
+    #[test]
+    fn compression_prompt_guides_handle_preservation() {
+        let prompt = super::COMPRESSION_SYSTEM_PROMPT;
+        // Section 10: Output Handles guidance
+        assert!(
+            prompt.contains("output_read"),
+            "should mention recall tools"
+        );
+        assert!(
+            prompt.contains("output_search"),
+            "should mention output_search"
+        );
+        assert!(
+            prompt.contains("output_tail"),
+            "should mention output_tail"
+        );
+        assert!(
+            prompt.contains("Do NOT attempt"),
+            "should warn against embedding raw output"
+        );
+        assert!(
+            prompt.contains("out_..."),
+            "should reference handle format"
+        );
+        assert!(
+            prompt.contains("referenced in later analysis"),
+            "should preserve handle-decision connections"
+        );
+    }
+
+    #[test]
+    fn compression_prompt_does_not_encourage_embedding_raw_output() {
+        let prompt = super::COMPRESSION_SYSTEM_PROMPT;
+        // The prompt should explicitly tell the summarizer NOT to copy large
+        // raw output and instead reference handles.
+        let sections_after_10 = &prompt[prompt.find("Output Handles").unwrap()..];
+        assert!(
+            sections_after_10.contains("Do NOT attempt"),
+            "IMPORTANT block must warn against embedding raw output"
+        );
     }
 
     #[test]

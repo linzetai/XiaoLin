@@ -639,10 +639,11 @@ async fn resolve_host(host: &str) -> anyhow::Result<Vec<IpAddr>> {
 mod tests {
     use super::*;
     use crate::config::{
-        NetworkDomainPermission, NetworkDomainPermissionEntry, NetworkDomainPermissions,
+        NetworkDomainPermissionEntry, NetworkDomainPermissions,
     };
     use crate::network_policy::NetworkProtocol;
 
+    #[allow(dead_code)]
     fn make_settings_with_domains(
         entries: Vec<NetworkDomainPermissionEntry>,
     ) -> NetworkProxySettings {

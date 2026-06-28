@@ -83,6 +83,8 @@ async fn replay_executor_with_fixture() {
             session_id: None,
             final_tool_calls: None,
             reason: Some("completed".into()),
+            diagnosis: None,
+            plan_outcome: None,
         },
     ];
     let events_json = serde_json::to_string_pretty(&events).unwrap();

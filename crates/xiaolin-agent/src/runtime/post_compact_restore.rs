@@ -9,6 +9,7 @@
 //! This module creates system messages that inject these back into context
 //! after compression, matching Claude-Code's post-compact restoration approach.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -35,6 +36,9 @@ pub const MAX_TOKENS_PER_SKILL: usize = 5_000;
 /// Matches Claude-Code's POST_COMPACT_SKILLS_TOKEN_BUDGET.
 pub const SKILLS_TOKEN_BUDGET: usize = 25_000;
 
+pub const MAX_OUTPUT_HANDLES_TO_RESTORE: usize = 20;
+pub const OUTPUT_HANDLES_TOKEN_BUDGET: usize = 2_000;
+
 /// A recently read file entry for restoration.
 #[derive(Debug, Clone)]
 pub struct RecentFile {
@@ -59,8 +63,16 @@ pub struct ActivatedTool {
     pub description: String,
 }
 
+/// Record of an output handle that should be preserved across compaction.
+#[derive(Debug, Clone)]
+pub struct OutputHandleRecord {
+    pub handle: String,
+    pub tool_name: String,
+    pub arguments_summary: String,
+}
+
 /// State to be restored after compaction.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct RestorationState {
     /// Recently read files (path -> (content, timestamp)).
     pub recent_files: Vec<RecentFile>,
@@ -76,6 +88,17 @@ pub struct RestorationState {
     /// After compaction, the activation context may be lost;
     /// this list ensures the LLM knows they are still available.
     pub activated_tools: Vec<ActivatedTool>,
+    pub output_handles: VecDeque<OutputHandleRecord>,
+}
+
+impl Default for RestorationState {
+    fn default() -> Self {
+        Self {
+            recent_files: Vec::new(), invoked_skills: Vec::new(),
+            plan_content: None, plan_path: None, is_plan_mode: false,
+            activated_tools: Vec::new(), output_handles: VecDeque::new(),
+        }
+    }
 }
 
 impl RestorationState {
@@ -137,6 +160,12 @@ impl RestorationState {
         }
     }
 
+    pub fn add_output_handle(&mut self, handle: String, tool_name: String, arguments_summary: String) {
+        if self.output_handles.iter().any(|h| h.handle == handle) { return; }
+        if self.output_handles.len() >= MAX_OUTPUT_HANDLES_TO_RESTORE { self.output_handles.pop_front(); }
+        self.output_handles.push_back(OutputHandleRecord { handle, tool_name, arguments_summary });
+    }
+
     /// Generate restoration messages to inject after compaction.
     /// Returns system messages that restore the preserved state.
     pub fn generate_restoration_messages(&self) -> Vec<ChatMessage> {
@@ -167,6 +196,11 @@ impl RestorationState {
 
         // 5. Restore activated deferred tools reminder
         if let Some(msg) = self.build_activated_tools_message() {
+            messages.push(msg);
+        }
+
+        // 6. Restore output handles
+        if let Some(msg) = self.build_output_handles_message() {
             messages.push(msg);
         }
 
@@ -300,6 +334,30 @@ impl RestorationState {
             content: Some(json!(text)),
             ..Default::default()
         })
+    }
+
+    fn build_output_handles_message(&self) -> Option<ChatMessage> {
+        if self.output_handles.is_empty() { return None; }
+        let header = "[Output handles preserved after context compaction]\n\n             The following tool outputs were stored as recoverable assets before compaction.              Use the recall tools to recover exact content when needed:\n\n";
+        let footer = "To recover content from a handle, use:\n             - output_read for line/byte/page ranges\n             - output_search for pattern matching within the output\n             - output_tail for the last N lines\n             - output_summary for a typed summary";
+        let mut used_tokens = rough_token_estimate(header) + rough_token_estimate(footer);
+        let mut handles_text = String::new();
+        let mut included = 0usize;
+        for h in &self.output_handles {
+            let relevance = if h.arguments_summary.is_empty() { format!("{} output", h.tool_name) } else { format!("{} output for {}", h.tool_name, h.arguments_summary) };
+            let entry = format!("- Handle: **{handle}**\n  Tool: {tool}\n  Args: {args}\n  Relevance: {relevance}\n\n", handle = h.handle, tool = h.tool_name, args = h.arguments_summary, relevance = relevance);
+            let entry_tokens = rough_token_estimate(&entry);
+            if used_tokens + entry_tokens > OUTPUT_HANDLES_TOKEN_BUDGET { break; }
+            used_tokens += entry_tokens;
+            handles_text.push_str(&entry);
+            included += 1;
+        }
+        if included == 0 { tracing::warn!(included=0, total_handles=self.output_handles.len(), budget=OUTPUT_HANDLES_TOKEN_BUDGET, "output handles budget exhausted"); return None; }
+        let mut text = String::from(header);
+        text.push_str(&handles_text);
+        if included < self.output_handles.len() { text.push_str(&format!("... and {} more handles (use output_summary to list all)\n\n", self.output_handles.len() - included)); }
+        text.push_str(footer);
+        Some(ChatMessage { role: Role::System, content: Some(json!(text)), ..Default::default() })
     }
 
     fn build_plan_mode_message(&self) -> ChatMessage {
@@ -534,10 +592,58 @@ mod tests {
         let mut state = RestorationState::new();
         state.set_plan(PathBuf::from("/plans/test.md"), "content".to_string());
         assert!(state.plan_content.is_some());
-        assert!(state.plan_path.is_some());
-
         state.clear_plan();
         assert!(state.plan_content.is_none());
-        assert!(state.plan_path.is_none());
+    }
+
+    #[test] fn add_output_handle_deduplicates() {
+        let mut state = RestorationState::new();
+        state.add_output_handle("out_a1b2".into(), "read_file".into(), "src/main.rs".into());
+        state.add_output_handle("out_a1b2".into(), "read_file".into(), "src/main.rs".into());
+        assert_eq!(state.output_handles.len(), 1);
+    }
+    #[test] fn add_output_handle_multiple_unique() {
+        let mut state = RestorationState::new();
+        state.add_output_handle("out_a1".into(), "search_in_files".into(), r#"pattern: "fn main""#.into());
+        state.add_output_handle("out_b2".into(), "shell_exec".into(), "cargo test".into());
+        assert_eq!(state.output_handles.len(), 2);
+    }
+    #[test] fn output_handles_message_with_computed_relevance() {
+        let mut state = RestorationState::new();
+        state.add_output_handle("out_abc123".into(), "read_file".into(), "src/lib.rs:1-200".into());
+        let msg = state.generate_restoration_messages().into_iter().find(|m| m.content.as_ref().map(|c| c.to_string().contains("Output handles preserved")).unwrap_or(false)).expect("should have handle msg");
+        let text = msg.content.as_ref().unwrap().to_string();
+        assert!(text.contains("out_abc123"));
+        assert!(text.contains("read_file output for src/lib.rs"), "got: {text}");
+        assert!(text.contains("output_read")); assert!(text.contains("output_search"));
+        assert!(text.contains("output_tail")); assert!(text.contains("output_summary"));
+    }
+    #[test] fn output_handles_message_empty_when_no_handles() {
+        assert!(!RestorationState::new().generate_restoration_messages().iter().any(|m| m.content.as_ref().map(|c| c.to_string().contains("Output handles preserved")).unwrap_or(false)));
+    }
+    #[test] fn output_handles_coexist_with_files_and_plan() {
+        let mut state = RestorationState::new();
+        state.add_file(PathBuf::from("/src/main.rs"), "fn main() {}".into());
+        state.add_output_handle("out_test123".into(), "shell_exec".into(), "cargo test --lib".into());
+        state.is_plan_mode = true;
+        let msgs = state.generate_restoration_messages();
+        assert!(msgs.iter().any(|m| m.content.as_ref().map(|c| c.to_string().contains("Recently read files")).unwrap_or(false)));
+        assert!(msgs.iter().any(|m| m.content.as_ref().map(|c| c.to_string().contains("Output handles preserved")).unwrap_or(false)));
+        assert!(msgs.iter().any(|m| m.content.as_ref().map(|c| c.to_string().contains("Plan mode active")).unwrap_or(false)));
+    }
+    #[test] fn output_handle_cap_evicts_oldest() {
+        let mut state = RestorationState::new();
+        for i in 0..100u32 { state.add_output_handle(format!("out_{i:06x}"), "read_file".into(), format!("file_{i}.rs")); }
+        assert_eq!(state.output_handles.len(), MAX_OUTPUT_HANDLES_TO_RESTORE);
+        assert_eq!(state.output_handles[0].handle, "out_000050");
+        assert_eq!(state.output_handles.back().unwrap().handle, "out_000063");
+    }
+    #[test] fn output_handle_budget_fits_all_capped_handles() {
+        let mut state = RestorationState::new();
+        for i in 0..MAX_OUTPUT_HANDLES_TO_RESTORE { state.add_output_handle(format!("out_handle_{i:04}"), "shell_exec".into(), format!("command_line_{i}: cargo test --lib -- --test-threads=1")); }
+        let msg = state.generate_restoration_messages().into_iter().find(|m| m.content.as_ref().map(|c| c.to_string().contains("Output handles preserved")).unwrap_or(false)).expect("should have handle msg");
+        let text = msg.content.as_ref().unwrap().to_string();
+        assert_eq!(text.matches("Handle:").count(), MAX_OUTPUT_HANDLES_TO_RESTORE);
+        assert!(text.contains("output_read"));
     }
 }

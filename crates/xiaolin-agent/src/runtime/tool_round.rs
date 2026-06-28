@@ -661,17 +661,28 @@ pub(crate) async fn execute_tool_round(
         } else {
             format!("{}{}", result.output, validation_suffix)
         };
-        let processed = process_tool_output(
+        let (processed, handle_info) = process_tool_output(
             &svc.tool_storage,
             svc.tool_output_store.as_ref(),
             svc.session_id.as_deref(),
             svc.turn_id.as_str(),
             &tool_name,
             &call_id,
+            &arguments,
             tool_output_with_validation.clone(),
             max_chars,
         )
         .await;
+
+        // Track output handle in restoration state for post-compact recovery
+        if let Some(info) = handle_info {
+            ms.query_loop.restoration_state.add_output_handle(
+                info.handle,
+                info.tool_name,
+                info.arguments_summary,
+            );
+        }
+
         let header = semantic_header(
             &tool_name,
             &arguments,

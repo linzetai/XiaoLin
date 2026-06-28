@@ -104,6 +104,7 @@ fn make_ctx(mode: ExecutionMode, tools: &[&str], deferred: usize) -> PromptConte
         pending_todo_summary: None,
         plan_file_path: None,
         plan_file_exists: false,
+        system_base_prompt: None,
     }
 }
 

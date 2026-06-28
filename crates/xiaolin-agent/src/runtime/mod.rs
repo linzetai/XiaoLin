@@ -274,6 +274,52 @@ fn classify_stream_error_code(message: &str) -> Option<ErrorCode> {
     Some(ErrorCode::classify(message))
 }
 
+/// Info about a handle created during tool output processing, returned
+/// so the caller can track it in RestorationState for post-compact recovery.
+pub(crate) struct ProcessedOutputInfo {
+    pub handle: String,
+    pub tool_name: String,
+    pub arguments_summary: String,
+}
+
+/// Build a compact arguments summary from JSON tool arguments.
+/// Extracts key fields (file_path, pattern, command, etc.) up to `max_len` chars.
+fn build_arguments_summary(tool_name: &str, arguments: &str, max_len: usize) -> String {
+    let _ = tool_name; // TODO: future tool-specific key extraction
+    if arguments.is_empty() { return String::new(); }
+    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(arguments) {
+        if let Some(obj) = parsed.as_object() {
+            let mut parts: Vec<String> = Vec::new();
+            for key in &["file_path", "path", "pattern", "command", "cmd", "query", "skill"] {
+                if let Some(val) = obj.get(*key) {
+                    let s = match val { serde_json::Value::String(s) => s.clone(), other => other.to_string() };
+                    if s.len() <= 80 { parts.push(format!("{key}={s}")); }
+                    else {
+                        let safe = safe_truncate(&s, 77);
+                        parts.push(format!("{key}={safe}..."));
+                    }
+                    if parts.iter().map(|p| p.len()).sum::<usize>() > max_len { break; }
+                }
+            }
+            if !parts.is_empty() { return parts.join(", "); }
+        }
+    }
+    format!("{}...", safe_truncate(arguments, max_len))
+}
+
+/// Build a human-readable relevance description from pre-computed args summary.
+fn build_relevance(tool_name: &str, args_summary: &str) -> String {
+    if args_summary.is_empty() { format!("{tool_name} output") }
+    else { format!("{tool_name} output for {args_summary}") }
+}
+
+/// Truncate to max_bytes on a UTF-8 char boundary via std::floor_char_boundary.
+fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes { return s; }
+    let end = s.floor_char_boundary(max_bytes);
+    &s[..end]
+}
+
 /// Process a tool result: persist large outputs to the new ToolOutputAssetStore
 /// when available, fall back to ToolResultStorage, then truncation.
 ///
@@ -288,9 +334,10 @@ async fn process_tool_output(
     turn_id: &str,
     tool_name: &str,
     call_id: &str,
+    arguments: &str,
     output: String,
     max_result_size_chars: usize,
-) -> String {
+) -> (String, Option<ProcessedOutputInfo>) {
     use xiaolin_session::tool_output_store::CreateAssetInput;
 
     let threshold = tool_result_storage::get_persistence_threshold(max_result_size_chars);
@@ -305,7 +352,7 @@ async fn process_tool_output(
                 turn_id: turn_id.to_string(),
                 tool_call_id: call_id.to_string(),
                 tool_name: tool_name.to_string(),
-                arguments: String::new(),
+                arguments: arguments.to_string(),
                 success: true,
                 output: output.clone(),
                 storage_root,
@@ -337,13 +384,19 @@ async fn process_tool_output(
                             )
                         }
                     };
+                    let args_summary = build_arguments_summary(tool_name, arguments, 120);
+                    let handle_info = ProcessedOutputInfo {
+                        handle: handle.to_string(),
+                        tool_name: tool_name.to_string(),
+                        arguments_summary: args_summary,
+                    };
                     tracing::info!(
                         handle = handle.as_str(),
                         tool = tool_name,
                         bytes = output.len(),
                         "ToolOutputAssetStore: created handle-backed asset"
                     );
-                    return msg;
+                    return (msg, Some(handle_info));
                 }
                 Err(e) => {
                     tracing::warn!(error = ?e, tool = tool_name, "ToolOutputAssetStore::create_asset failed, falling back to legacy");
@@ -354,16 +407,16 @@ async fn process_tool_output(
 
     // Fallback: legacy ToolResultStorage path
     match storage.process_result(tool_name, call_id, &output, threshold) {
-        Ok(Some(replacement)) => replacement,
-        Ok(None) => output,
+        Ok(Some(replacement)) => (replacement, None),
+        Ok(None) => (output, None),
         Err(e) => {
             tracing::warn!(error = %e, tool = tool_name, "ToolResultStorage failed, falling back to truncation");
-            truncate_tool_result_output_with_limit(
+            (truncate_tool_result_output_with_limit(
                 &output,
                 tool_name,
                 "",
                 Some(max_result_size_chars),
-            )
+            ), None)
         }
     }
 }
@@ -1529,6 +1582,62 @@ impl AgentRuntime {
                 "failed to persist replacement records"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod arguments_summary_tests {
+    use super::*;
+
+    #[test]
+    fn safe_truncate_ascii() {
+        assert_eq!(safe_truncate("hello world", 5), "hello");
+        assert_eq!(safe_truncate("hello world", 100), "hello world");
+    }
+
+    #[test]
+    fn safe_truncate_cjk() {
+        let s = "你好世界测试文本";
+        let t = safe_truncate(s, 8);
+        assert!(s.starts_with(t), "truncated={t:?}");
+        assert!(t.len() <= 8);
+    }
+
+    #[test]
+    fn safe_truncate_emoji() {
+        let s = "hello 🚀 world";
+        let t = safe_truncate(s, 7);
+        assert!(!t.contains("🚀"), "should not split emoji");
+        assert_eq!(t, "hello ");
+    }
+
+    #[test]
+    fn build_arguments_summary_with_cjk_path() {
+        let args = r#"{"file_path": "/home/用户/文档/main.rs", "offset": 0}"#;
+        let summary = build_arguments_summary("read_file", args, 120);
+        assert!(summary.contains("file_path="), "got: {summary}");
+    }
+
+    #[test]
+    fn build_relevance_reads_file() {
+        let args_summary = build_arguments_summary("read_file", r#"{"file_path": "src/main.rs"}"#, 120);
+        let r = build_relevance("read_file", &args_summary);
+        assert!(r.contains("read_file"));
+        assert!(r.contains("src/main.rs"), "got: {r}");
+    }
+
+    #[test]
+    fn build_relevance_shell_exec() {
+        let args_summary = build_arguments_summary("shell_exec", r#"{"command": "cargo test"}"#, 120);
+        let r = build_relevance("shell_exec", &args_summary);
+        assert!(r.contains("shell_exec"));
+        assert!(r.contains("cargo test"), "got: {r}");
+    }
+
+    #[test]
+    fn build_relevance_empty_args() {
+        let r = build_relevance("unknown_tool", "");
+        assert!(!r.is_empty(), "should produce fallback");
     }
 }
 

@@ -511,6 +511,9 @@ pub fn code_context_section() -> PromptSection {
 
 /// Function result clearing section: informs the model that old tool results
 /// may be automatically compacted or cleared to save context space.
+/// When output handles (like "out_...") are available, the model should prefer
+/// recall tools (output_read, output_search, output_tail, output_summary)
+/// over re-running expensive commands.
 pub fn frc_section() -> PromptSection {
     PromptSection {
         name: "frc",
@@ -520,15 +523,18 @@ pub fn frc_section() -> PromptSection {
                 Some("zh" | "zh-CN" | "zh-TW") => "\
 <function_result_clearing>\n\
 旧的工具调用结果可能被自动压缩或替换为摘要，以节省上下文空间。\n\
-如果你需要之前工具调用的精确内容，请重新调用该工具而非依赖记忆。\n\
-被清理的结果会显示为简短的摘要标记。\n\
+如果你需要之前工具调用的精确内容，当输出句柄（如 out_...）可用时，\n\
+优先使用 output_read、output_search 或 output_tail 获取精确内容，\n\
+而不是重新运行昂贵的命令。被清理的结果会显示为简短的摘要标记。\n\
 </function_result_clearing>"
                     .to_string(),
                 _ => "\
 <function_result_clearing>\n\
 Old tool call results may be automatically compacted or replaced with summaries \n\
-to save context space. If you need the exact content from a previous tool call, \n\
-re-invoke the tool rather than relying on memory. Cleared results appear as \n\
+to save context space. When an output handle (e.g., \"out_...\") is available, \n\
+prefer using output_read, output_search, or output_tail to recover exact content \n\
+instead of re-running expensive commands. Only re-run the tool if no handle is \n\
+available or you need fundamentally different output. Cleared results appear as \n\
 short summary markers.\n\
 </function_result_clearing>"
                     .to_string(),
@@ -866,7 +872,8 @@ mod tests {
         let ctx = base_ctx(None);
         let text = (section.compute)(&ctx).unwrap();
         assert!(text.contains("compacted"));
-        assert!(text.contains("re-invoke"));
+        assert!(text.contains("output_read"));
+        assert!(text.contains("output_search"));
     }
 
     #[test]
@@ -875,7 +882,7 @@ mod tests {
         let ctx = base_ctx(Some("zh"));
         let text = (section.compute)(&ctx).unwrap();
         assert!(text.contains("压缩"));
-        assert!(text.contains("重新调用"));
+        assert!(text.contains("output_read"));
     }
 
     #[test]
