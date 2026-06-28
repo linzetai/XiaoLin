@@ -61,11 +61,11 @@
 
 ## 7. Provenance And Migration Safety
 
-- [ ] 7.1 Attach projection provenance to model-visible output representations and recall-tool results.
-- [ ] 7.2 Record provenance transitions from raw output to manifest, typed summary, recalled excerpt, LLM summary, and hard-fit removal.
-- [ ] 7.3 Replace string-marker-only compaction checks with provenance-aware checks while preserving legacy marker recognition.
-- [ ] 7.4 Add migration tests for restored transcripts containing `[faded]`, `[summarized]`, `[recall-available]`, and `<persisted-output>`.
-- [ ] 7.5 Add negative tests proving asset-backed projections are not repeatedly destructively compacted by old and new paths together.
+- [x] 7.1 Attach projection provenance to model-visible output representations and recall-tool results.
+- [x] 7.2 Record provenance transitions from raw output to manifest, typed summary, recalled excerpt, LLM summary, and hard-fit removal.
+- [x] 7.3 Replace string-marker-only compaction checks with provenance-aware checks while preserving legacy marker recognition.
+- [x] 7.4 Add migration tests for restored transcripts containing `[faded]`, `[summarized]`, `[recall-available]`, and `<persisted-output>`.
+- [x] 7.5 Add negative tests proving asset-backed projections are not repeatedly destructively compacted by old and new paths together.
 
 ## 8. Observability And Runtime Quality
 

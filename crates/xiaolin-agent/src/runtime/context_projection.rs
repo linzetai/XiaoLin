@@ -24,11 +24,14 @@
 //! (ContentFilterHook, hard fit) can recognize already-projected content
 //! and avoid re-truncation.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use xiaolin_core::types::{ChatMessage, Role};
 use xiaolin_session::tool_output_projector::Projection;
-use xiaolin_session::tool_output_store::{OutputSizeClass, ProjectionSizeConfig};
+use xiaolin_session::tool_output_store::{
+    has_provenance_marker, OutputSizeClass, ProjectionProvenance, ProjectionSizeConfig,
+};
 
 // ============================================================================
 // Projection budget accounting
@@ -317,42 +320,17 @@ impl Default for ContextProjectionPipeline {
 // ============================================================================
 
 /// Check if a message content is already a projection or compaction result.
-/// These should NOT be re-truncated by downstream layers like ContentFilterHook.
 ///
-/// This function is intentionally duplicated in `xiaolin-context/src/engine.rs`
-/// as `ContentFilterHook::is_already_compressed` for historical reasons.
-/// New callers should use this centralized version.
+/// Thin wrapper around [`has_provenance_marker`] for call-site clarity within
+/// the projection pipeline. Delegates to the single canonical marker-detection
+/// function in `xiaolin_session::tool_output_store`.
+///
+/// These should NOT be re-truncated by downstream layers like ContentFilterHook.
 pub fn is_already_projected(text: &str) -> bool {
-    // Legacy compaction markers
-    if text.starts_with("[faded]")
-        || text.starts_with("[time-compacted]")
-        || text.starts_with("[summarized]")
-        || text.starts_with("[oneliner]")
-        || text.starts_with("[recall-available]")
-        || text.starts_with("[superseded")
-        || text == "[Old tool result content cleared]"
-        // Legacy XML handle
-        || text.contains("<output-handle>")
-    {
-        return true;
-    }
-
-    // New projection format markers: "[<type> — handle: out_...]\n"
-    // All projector type labels from tool_output_projector.rs
-    if text.starts_with("[shell/test output — handle:")
-        || text.starts_with("[file read output — handle:")
-        || text.starts_with("[search/grep output — handle:")
-        || text.starts_with("[directory listing — handle:")
-        || text.starts_with("[browser snapshot — handle:")
-        || text.starts_with("[JSON/structured output — handle:")
-        || text.starts_with("[text output — handle:")
-        || text.starts_with("[output_summary:")
-        || text.starts_with("[output stored — handle:")
-    {
-        return true;
-    }
-
-    false
+    // Delegate to the single canonical provenance-marker function in
+    // xiaolin_session::tool_output_store. This keeps all three check sites
+    // (projection pipeline, post-tool compaction, ContentFilterHook) in sync.
+    has_provenance_marker(text)
 }
 
 // ============================================================================
@@ -479,13 +457,7 @@ fn build_metadata_projection(
         let tail_text: String = tail_lines
             .into_iter()
             .rev()
-            .map(|l| {
-                if l.len() > 500 {
-                    format!("{}...", &l[..497])
-                } else {
-                    l.to_string()
-                }
-            })
+            .map(|l| safe_truncate_line(l, 500).into_owned())
             .collect::<Vec<_>>()
             .join("\n");
         Some(tail_text)
@@ -498,6 +470,7 @@ fn build_metadata_projection(
         summary_lines,
         excerpt,
         handle: handle.to_string(),
+        provenance: ProjectionProvenance::TypedSummary,
         recall_guidance: vec![
             format!("output_read handle={handle} start_line=1 end_line=500"),
             format!("output_search handle={handle} pattern=<keyword>"),
@@ -526,6 +499,7 @@ fn build_minimal_projection(
         ],
         excerpt: None,
         handle: handle.to_string(),
+        provenance: ProjectionProvenance::AssetManifest,
         recall_guidance: vec![
             format!("output_read handle={handle} start_line=1 end_line=500"),
             format!("output_summary handle={handle} — get typed summary"),
@@ -556,6 +530,21 @@ fn classify_type_label(tool_name: &str) -> &'static str {
         _ if tool_name.starts_with("mcp__") => "JSON/structured output",
         _ => "text output",
     }
+}
+
+/// Truncate a line to at most `max_bytes` bytes, respecting UTF-8 character
+/// boundaries. Appends "..." if truncated.
+///
+/// This is the single safe-truncation function used everywhere in the
+/// projection pipeline. Do NOT use raw byte slices (`&s[..N]`) — they panic
+/// when N falls inside a multi-byte code point.
+fn safe_truncate_line(line: &str, max_bytes: usize) -> Cow<'_, str> {
+    if line.len() <= max_bytes {
+        return Cow::Borrowed(line);
+    }
+    let cutoff = (max_bytes.saturating_sub(3)).min(line.len());
+    let idx = line.floor_char_boundary(cutoff);
+    Cow::Owned(format!("{}...", &line[..idx]))
 }
 
 #[cfg(test)]
@@ -701,7 +690,7 @@ mod tests {
 
         let result = msgs[0].text_content().unwrap();
         assert!(
-            result.contains("text output — handle:") || result.contains("[output stored —"),
+            result.contains("text output (provenance:") || result.contains("[output stored —"),
             "expected projection, got: {result}"
         );
     }
@@ -814,15 +803,16 @@ mod tests {
     fn test_projection_markers_block_post_tool_compaction() {
         // Projection markers from the context projection pipeline.
         let projection_examples = [
-            "[shell/test output — handle: out_test123]\n- Tool: Bash\n- Size: 5000 bytes",
-            "[file read output — handle: out_test456]\n- Tool: Read\n- Size: 2000 bytes",
-            "[search/grep output — handle: out_test789]\n- matches: 42",
-            "[directory listing — handle: out_test000]\n- entries: 15",
-            "[browser snapshot — handle: out_test111]\n- url: https://example.com",
-            "[JSON/structured output — handle: out_test222]\n- shape: object, 3 keys",
-            "[text output — handle: out_test333]\n- Tool: unknown\n- Size: 10000 bytes",
-            "[output_summary: out_test444]\nType: shell/test output",
+            "[shell/test output (provenance: projected) — handle: out_test123]\n- Tool: Bash\n- Size: 5000 bytes",
+            "[file read output (provenance: projected) — handle: out_test456]\n- Tool: Read\n- Size: 2000 bytes",
+            "[search/grep output (provenance: projected) — handle: out_test789]\n- matches: 42",
+            "[directory listing (provenance: projected) — handle: out_test000]\n- entries: 15",
+            "[browser snapshot (provenance: projected) — handle: out_test111]\n- url: https://example.com",
+            "[JSON/structured output (provenance: projected) — handle: out_test222]\n- shape: object, 3 keys",
+            "[text output (provenance: projected) — handle: out_test333]\n- Tool: unknown\n- Size: 10000 bytes",
+            "[text output (provenance: summarized) — handle: out_test444]\nType: shell/test output",
             "[output stored — handle: out_test555]\nType: shell/test output\nUse output_read...",
+            "[shell/test output — handle: out_test666]\n- Tool: Bash\n- Size: 5000 bytes",
         ];
 
         for example in projection_examples {
@@ -835,5 +825,215 @@ mod tests {
                 "tool_executor::is_already_compacted must recognize to prevent post-tool microcompact: {example}"
             );
         }
+    }
+
+    // =====================================================================
+    // Phase 7.4 — Migration tests for legacy markers
+    // =====================================================================
+
+    /// Legacy `[faded]` marker is still recognized as already-projected.
+    #[test]
+    fn test_migration_faded_marker_still_recognized() {
+        let examples = [
+            "[faded] original was big",
+            "[faded] 3 matches in foo.rs",
+            "[faded] compilation failed with 2 errors",
+        ];
+        for example in examples {
+            assert!(
+                super::is_already_projected(example),
+                "[faded] marker must still be recognized: {example}"
+            );
+        }
+    }
+
+    /// Legacy `[summarized]` marker is still recognized as already-projected.
+    #[test]
+    fn test_migration_summarized_marker_still_recognized() {
+        let examples = [
+            "[summarized] 3 matches in foo.rs",
+            "[summarized] build succeeded",
+            "[summarized] discussion about auth flow",
+        ];
+        for example in examples {
+            assert!(
+                super::is_already_projected(example),
+                "[summarized] marker must still be recognized: {example}"
+            );
+        }
+    }
+
+    /// Legacy `[recall-available]` marker is still recognized as already-projected.
+    #[test]
+    fn test_migration_recall_available_marker_still_recognized() {
+        let examples = [
+            "[recall-available] some large output was stored",
+            "[recall-available] search results from earlier",
+        ];
+        for example in examples {
+            assert!(
+                super::is_already_projected(example),
+                "[recall-available] marker must still be recognized: {example}"
+            );
+        }
+    }
+
+    /// Legacy `<persisted-output>` marker is recognized.
+    /// Uses the real format produced by `build_large_tool_result_message`
+    /// in `tool_result_storage.rs`.
+    #[test]
+    fn test_migration_persisted_output_marker_still_recognized() {
+        let persisted_examples = [
+            "<persisted-output>\nOutput too large (1.2 MB). Full output saved to: /tmp/x.txt\n\nPreview (first 4 KB):\nfoo\n...\n</persisted-output>",
+            "<persisted-output>\nOutput too large (2.5 MB). Full output saved to: /tmp/y.txt\n\nPreview (first 4 KB):\nbar\nbaz\n</persisted-output>",
+        ];
+        for example in persisted_examples {
+            assert!(
+                super::is_already_projected(example),
+                "<persisted-output> marker must be recognized: {example}"
+            );
+        }
+
+        // `<output-handle>` is also still recognized (separate legacy format)
+        let handle_examples = [
+            "Result: <output-handle>out_abc_def</output-handle>\nPreview: some content...",
+            "Tool output stored. <output-handle>out_xyz_789</output-handle>",
+        ];
+        for example in handle_examples {
+            assert!(
+                super::is_already_projected(example),
+                "<output-handle> marker must still be recognized: {example}"
+            );
+        }
+    }
+
+    /// Mixed legacy + new formats are recognized.
+    #[test]
+    fn test_migration_mixed_formats_recognized() {
+        let text = "[summarized] earlier conversation\n[text output (provenance: projected) — handle: out_mix_001]\n- Tool: Bash\n- Size: 1000 bytes";
+        assert!(
+            super::is_already_projected(text),
+            "mixed legacy + new format must be recognized"
+        );
+    }
+
+    // =====================================================================
+    // Phase 7.5 — Negative tests for repeated destructive compaction
+    // =====================================================================
+
+    /// A message that passes through the projection pipeline and then is
+    /// checked by `is_already_projected` must not be re-projected.
+    #[test]
+    fn test_no_double_projection_on_projected_output() {
+        let mut pipeline = ContextProjectionPipeline::new();
+        let large = "x".repeat(100000);
+
+        // First pass: project
+        let mut msgs = vec![tool_msg("web_search", &large)];
+        pipeline.project_messages(&mut msgs);
+        let after_first = msgs[0].text_content().unwrap().to_string();
+        assert!(
+            super::is_already_projected(&after_first),
+            "first-projection must be recognized"
+        );
+
+        // Second pass: create a fresh pipeline and try to project again
+        let mut pipeline2 = ContextProjectionPipeline::new();
+        let mut msgs2 = vec![tool_msg("web_search", &after_first)];
+        pipeline2.project_messages(&mut msgs2);
+        let after_second = msgs2[0].text_content().unwrap().to_string();
+
+        // The output should be unchanged — no nested projection
+        assert_eq!(
+            after_first, after_second,
+            "projected content must not be re-projected (nested truncation prevention)"
+        );
+    }
+
+    /// Post-tool microcompact (`is_already_compacted`) must skip projected
+    /// outputs — otherwise we get cascading truncation.
+    #[test]
+    fn test_post_tool_compaction_skips_projected_output() {
+        let projected_formats = [
+            "[text output (provenance: summarized) — handle: out_abc]\n- Tool: Bash\n- Size: 50000 bytes",
+            "[shell/test output (provenance: projected) — handle: out_def]\n- Tool: Bash\n- exit status: FAILED",
+            "[search/grep output (provenance: projected) — handle: out_ghi]\n- matches: 42",
+            "[output stored — handle: out_stored_123]\nType: text output\nUse output_read...",
+            "[shell/test output (provenance: recalled) — handle: out_recall_001]\n- Tool: Bash\n- exit status: FAILED",
+        ];
+
+        for format in projected_formats {
+            assert!(
+                crate::runtime::tool_executor::is_already_compacted(format),
+                "post-tool microcompact must skip: {format}"
+            );
+        }
+    }
+
+    /// Raw inline content should NOT be blocked by provenance checks.
+    #[test]
+    fn test_raw_output_not_blocked_by_provenance_checks() {
+        let raw_outputs = [
+            "regular command output",
+            "error: something went wrong",
+            "line1\nline2\nline3",
+        ];
+        for output in raw_outputs {
+            assert!(
+                !super::is_already_projected(output),
+                "raw output must not be blocked: {output}"
+            );
+            assert!(
+                !crate::runtime::tool_executor::is_already_compacted(output),
+                "raw output must not be blocked by compaction check: {output}"
+            );
+        }
+    }
+
+    /// Old and new checks combined should not produce false positives
+    /// (e.g. "provenance" appearing as a normal word in output).
+    #[test]
+    fn test_provenance_keyword_in_normal_output_not_blocked() {
+        // The check is for "(provenance:" — not just "provenance"
+        let normal_output = "the provenance of this data is unknown";
+        assert!(
+            !super::is_already_projected(normal_output),
+            "'provenance' as normal word must not be blocked"
+        );
+        assert!(
+            !crate::runtime::tool_executor::is_already_compacted(normal_output),
+            "'provenance' as normal word must not be blocked by compaction check"
+        );
+    }
+    /// Multi-byte safe truncation does not panic on CJK/emoji lines.
+    #[test]
+    fn test_safe_truncate_line_cjk_and_emoji() {
+        let cjk_line = repeat_char('\u{4f60}', 250);
+        let result = safe_truncate_line(&cjk_line, 500);
+        assert!(result.len() <= 500);
+        assert!(result.ends_with("..."));
+        assert!(!result.contains('\u{fffd}'));
+
+        let emoji_line = repeat_char('\u{1f389}', 200);
+        let result2 = safe_truncate_line(&emoji_line, 500);
+        assert!(result2.len() <= 500);
+        assert!(result2.ends_with("..."));
+
+        let short = "hello world";
+        let result3 = safe_truncate_line(short, 500);
+        assert_eq!(result3, short);
+
+        let ascii_500 = "x".repeat(500);
+        let result4 = safe_truncate_line(&ascii_500, 500);
+        assert_eq!(result4, ascii_500);
+
+        let ascii_501 = "x".repeat(501);
+        let result5 = safe_truncate_line(&ascii_501, 500);
+        assert_eq!(result5.len(), 500);
+        assert!(result5.ends_with("..."));
+    }
+
+    fn repeat_char(c: char, n: usize) -> String {
+        std::iter::repeat(c).take(n).collect()
     }
 }

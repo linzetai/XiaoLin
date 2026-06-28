@@ -896,9 +896,23 @@ or output_tail."
 /// Build a typed summary for an asset using the projector registry.
 /// Produces a metadata-only projection (no raw content loaded) for the
 /// `output_summary` recall tool.
+///
+/// The projection provenance is set to `RecalledExcerpt` to indicate that
+/// this content was reintroduced through a recall tool, making it
+/// self-sufficient for downstream already-projected detection.
 fn build_typed_summary(asset: &xiaolin_session::tool_output_store::ToolOutputAsset) -> String {
-    let projection =
+    let mut projection =
         xiaolin_session::tool_output_projector::PROJECTOR_REGISTRY.project_metadata_only(asset);
+    // project_metadata_only() sets provenance to TypedSummary by default;
+    // we override it to RecalledExcerpt since this content is being
+    // reintroduced through a recall tool.
+    debug_assert_eq!(
+        projection.provenance,
+        xiaolin_session::tool_output_store::ProjectionProvenance::TypedSummary,
+        "project_metadata_only() provenance changed; update this site accordingly"
+    );
+    projection.provenance =
+        xiaolin_session::tool_output_store::ProjectionProvenance::RecalledExcerpt;
     projection.format()
 }
 
@@ -1045,6 +1059,10 @@ mod tests {
             assert!(
                 summary.contains(base.handle.as_str()),
                 "summary for {kind:?} must contain handle"
+            );
+            assert!(
+                summary.contains("(provenance: recalled)"),
+                "summary for {kind:?} must contain provenance tag"
             );
         }
     }

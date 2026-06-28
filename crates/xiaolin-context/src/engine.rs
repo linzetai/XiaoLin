@@ -1117,6 +1117,13 @@ impl ContextEngine {
                 return false;
             }
             msg.text_content().is_some_and(|t| {
+                // Phase 7: provenance-aware — delegates to the same marker set as
+                // xiaolin_session::tool_output_store::has_provenance_marker().
+                // Duplicated here to avoid a xiaolin-context → xiaolin-session
+                // dependency. Keep in sync with that canonical function.
+                if t.contains("(provenance:") {
+                    return true;
+                }
                 t.starts_with("[faded]")
                     || t.starts_with("[time-compacted]")
                     || t.starts_with("[summarized]")
@@ -1124,6 +1131,7 @@ impl ContextEngine {
                     || t.starts_with("[recall-available]")
                     || t.starts_with("[superseded")
                     || t == "[Old tool result content cleared]"
+                    || t.starts_with("<persisted-output>") || t.contains("<persisted-output>")
                     || t.starts_with("[shell/test output — handle:")
                     || t.starts_with("[file read output — handle:")
                     || t.starts_with("[search/grep output — handle:")
@@ -1357,7 +1365,9 @@ impl ContextHook for ContentFilterHook {
                     // Phase 5: also recognize projection-format markers from
                     // ContextProjectionPipeline so projected content is treated
                     // as bounded and not re-truncated under normal conditions.
-                    let already_compressed = t.starts_with("[faded]")
+                    // Phase 7: provenance-aware: "(provenance: …)" means already projected
+                    let already_compressed = t.contains("(provenance:")
+                        || t.starts_with("[faded]")
                         || t.starts_with("[time-compacted]")
                         || t.starts_with("[summarized]")
                         || t.starts_with("[oneliner]")
@@ -1374,7 +1384,8 @@ impl ContextHook for ContentFilterHook {
                         || t.starts_with("[text output — handle:")
                         || t.starts_with("[output_summary:")
                         || t.starts_with("[output stored — handle:")
-                        || t.contains("<output-handle>");
+                        || t.contains("<output-handle>")
+                        || t.starts_with("<persisted-output>") || t.contains("<persisted-output>");
                     if !already_compressed && t.chars().count() > max {
                         let truncated: String = t.chars().take(max).collect();
                         let removed = t.chars().count() - max;

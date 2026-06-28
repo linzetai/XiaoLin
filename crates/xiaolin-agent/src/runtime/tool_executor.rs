@@ -3,7 +3,6 @@ use xiaolin_core::agent_config::AgentConfig;
 use xiaolin_core::tool::ToolDefinition;
 
 use super::prompt_builder::memory_tool_suffix;
-use super::tool_result_storage::TOOL_RESULT_CLEARED_MESSAGE;
 
 /// Legacy fallback character limit for tool output.
 /// Now superseded by `Tool::max_result_size_chars()` (100_000 default).
@@ -675,11 +674,9 @@ fn fade_to_preview(content: &str, max_chars: usize) -> String {
 }
 
 const FADED_MARKER: &str = "[faded]";
-const ONELINER_MARKER: &str = "[oneliner]";
 const SEMANTIC_HEADER_MARKER: &str = "§";
 const TIME_COMPACTED_MARKER: &str = "[time-compacted]";
 const SUMMARIZED_MARKER: &str = "[summarized]";
-const SUPERSEDED_MARKER_PREFIX: &str = "[superseded";
 
 /// Returns true if `text` already carries a compaction marker.
 ///
@@ -694,24 +691,10 @@ const SUPERSEDED_MARKER_PREFIX: &str = "[superseded";
 /// `ContextProjectionPipeline` so asset-backed projected outputs
 /// survive post-tool microcompact without nested truncation markers.
 pub(crate) fn is_already_compacted(text: &str) -> bool {
-    text.starts_with(ONELINER_MARKER)
-        || text.starts_with(FADED_MARKER)
-        || text.starts_with(TIME_COMPACTED_MARKER)
-        || text.starts_with(SUMMARIZED_MARKER)
-        || text.starts_with(RECALL_HINT_MARKER)
-        || text.starts_with(SUPERSEDED_MARKER_PREFIX)
-        || text == TOOL_RESULT_CLEARED_MESSAGE
-        // Projection-format markers (sync with context_projection::is_already_projected)
-        || text.starts_with("[shell/test output — handle:")
-        || text.starts_with("[file read output — handle:")
-        || text.starts_with("[search/grep output — handle:")
-        || text.starts_with("[directory listing — handle:")
-        || text.starts_with("[browser snapshot — handle:")
-        || text.starts_with("[JSON/structured output — handle:")
-        || text.starts_with("[text output — handle:")
-        || text.starts_with("[output_summary:")
-        || text.starts_with("[output stored — handle:")
-        || text.contains("<output-handle>")
+    // Delegate to the single canonical provenance-marker function in
+    // xiaolin_session::tool_output_store. This keeps all three check sites
+    // (projection pipeline, post-tool compaction, ContentFilterHook) in sync.
+    xiaolin_session::tool_output_store::has_provenance_marker(text)
 }
 
 /// Build a semantic summary header from tool name, arguments, and output metadata.

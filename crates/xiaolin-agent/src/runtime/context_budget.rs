@@ -3,8 +3,10 @@ use xiaolin_core::types::{ChatMessage, Role};
 use super::tool_executor::{
     build_cleared_with_recall, classify_retention_tier, summarize_tool_result, RetentionTier,
     BUDGET_RECENT_EPHEMERAL_CHARS, BUDGET_RECENT_FULL_RETAIN_CHARS, BUDGET_RECENT_SUMMARIZE_CHARS,
-    RECALL_HINT_MARKER, SUMMARIZE_MAX_CHARS, TIME_COMPACT_FULL_RETAIN_CHARS,
+    SUMMARIZE_MAX_CHARS, TIME_COMPACT_FULL_RETAIN_CHARS,
 };
+#[cfg(test)]
+use super::tool_executor::RECALL_HINT_MARKER;
 
 /// Semantic importance score for a tool result.
 ///
@@ -312,13 +314,7 @@ pub(crate) fn apply_token_budget(
                 None => continue,
             };
 
-            if text.starts_with("[summarized]")
-                || text.starts_with(RECALL_HINT_MARKER)
-                || text.starts_with("[faded]")
-                || text.starts_with("[oneliner]")
-                || text.starts_with("[time-compacted]")
-                || text == "[Old tool result content cleared]"
-            {
+            if super::tool_executor::is_already_compacted(&text) {
                 continue;
             }
 
@@ -378,12 +374,7 @@ pub(crate) fn apply_token_budget(
                 None => continue,
             };
 
-            if text.starts_with("[summarized]")
-                || text.starts_with(RECALL_HINT_MARKER)
-                || text.starts_with("[faded]")
-                || text.starts_with("[time-compacted]")
-                || text == "[Old tool result content cleared]"
-            {
+            if super::tool_executor::is_already_compacted(&text) {
                 continue;
             }
 

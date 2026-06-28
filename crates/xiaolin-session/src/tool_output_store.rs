@@ -216,6 +216,101 @@ impl ProjectionProvenance {
             ProjectionProvenance::LlmSummary | ProjectionProvenance::HardFitRemoval => false,
         }
     }
+
+    /// Returns the stable model-visible tag for this provenance.
+    /// Used in projection headers and recall tool results.
+    pub fn as_model_tag(self) -> &'static str {
+        match self {
+            ProjectionProvenance::RawInline => "raw",
+            ProjectionProvenance::AssetManifest => "projected",
+            ProjectionProvenance::TypedSummary => "summarized",
+            ProjectionProvenance::RecalledExcerpt => "recalled",
+            ProjectionProvenance::LlmSummary => "auto-compacted",
+            ProjectionProvenance::HardFitRemoval => "hard-fit-removed",
+            ProjectionProvenance::LegacyPersisted => "legacy-persisted",
+        }
+    }
+}
+
+// ============================================================================
+// Shared provenance-marker detection
+// ============================================================================
+
+/// Returns true if `text` carries a provenance marker, indicating the content
+/// is already a projection, summary, recall excerpt, or legacy compaction
+/// result. Downstream layers (ContentFilterHook, hard-fit, post-tool compaction)
+/// MUST skip such content to avoid repeated destructive processing.
+///
+/// This is the single canonical function for provenance-marker detection.
+/// All check sites (`is_already_projected`, `is_already_compacted`,
+/// `ContentFilterHook`) delegate to this function.
+///
+/// # Recognized markers
+///
+/// - New provenance format: `(provenance: <tag>)`
+/// - Legacy compaction markers: `[faded]`, `[summarized]`, `[time-compacted]`,
+///   `[oneliner]`, `[recall-available]`, `[superseded`
+/// - Legacy persisted-output markers: `<persisted-output>`, `<output-handle>`
+/// - Projection/manifest format markers: `[<type> — handle:…]`, `[output_summary:…]`,
+///   `[output stored — handle:…]`
+pub fn has_provenance_marker(text: &str) -> bool {
+    // Group all O(n) full-string scans first so they short-circuit together.
+    // Each contains() scans the entire string; grouping them together avoids
+    // interleaving cheap starts_with checks between expensive scans.
+    //
+    // New provenance-aware format: "(provenance: …)" appears in all
+    // Projection::format() output and recall-tool result headers.
+    if text.contains("(provenance:") {
+        return true;
+    }
+    // Legacy persisted-output markers (from pre-migration transcripts)
+    if text.contains("<persisted-output>") {
+        return true;
+    }
+    // Legacy XML handle format
+    if text.contains("<output-handle>") {
+        return true;
+    }
+
+    // All remaining checks are O(1) starts_with/equality checks
+    // (no full-string scanning needed):
+
+    // Legacy compaction markers
+    if text.starts_with("[faded]")
+        || text.starts_with("[time-compacted]")
+        || text.starts_with("[summarized]")
+        || text.starts_with("[oneliner]")
+        || text.starts_with("[recall-available]")
+        || text.starts_with("[superseded")
+        || text == "[Old tool result content cleared]"
+    {
+        return true;
+    }
+
+    // Legacy <persisted-output> starts_with check (catches the anchored case
+    // cheaply; the contains() check above handles the non-anchored case).
+    if text.starts_with("<persisted-output>") {
+        return true;
+    }
+
+    // Projection format markers: "[<type> — handle: out_...]"
+    if text.starts_with("[shell/test output — handle:")
+        || text.starts_with("[file read output — handle:")
+        || text.starts_with("[search/grep output — handle:")
+        || text.starts_with("[directory listing — handle:")
+        || text.starts_with("[browser snapshot — handle:")
+        || text.starts_with("[JSON/structured output — handle:")
+        || text.starts_with("[text output — handle:")
+    {
+        return true;
+    }
+
+    // Summary and handle-only manifest markers
+    if text.starts_with("[output_summary:") || text.starts_with("[output stored — handle:") {
+        return true;
+    }
+
+    false
 }
 
 // ============================================================================
@@ -1625,6 +1720,17 @@ mod tests {
         assert!(ProjectionProvenance::LegacyPersisted.is_recoverable());
         assert!(!ProjectionProvenance::LlmSummary.is_recoverable());
         assert!(!ProjectionProvenance::HardFitRemoval.is_recoverable());
+    }
+
+    #[test]
+    fn provenance_as_model_tag() {
+        assert_eq!(ProjectionProvenance::RawInline.as_model_tag(), "raw");
+        assert_eq!(ProjectionProvenance::AssetManifest.as_model_tag(), "projected");
+        assert_eq!(ProjectionProvenance::TypedSummary.as_model_tag(), "summarized");
+        assert_eq!(ProjectionProvenance::RecalledExcerpt.as_model_tag(), "recalled");
+        assert_eq!(ProjectionProvenance::LlmSummary.as_model_tag(), "auto-compacted");
+        assert_eq!(ProjectionProvenance::HardFitRemoval.as_model_tag(), "hard-fit-removed");
+        assert_eq!(ProjectionProvenance::LegacyPersisted.as_model_tag(), "legacy-persisted");
     }
 
     // =========================================================================

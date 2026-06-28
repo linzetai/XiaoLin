@@ -18,7 +18,9 @@
 //! timestamps, blob paths, or random identifiers in model-visible text).
 //! This is critical for prompt-cache stability.
 
-use crate::tool_output_store::{ProjectorKind, ToolOutputAsset};
+use crate::tool_output_store::{
+    ProjectionProvenance, ProjectorKind, ToolOutputAsset,
+};
 
 // ============================================================================
 // Excerpt bounds
@@ -33,14 +35,16 @@ const FAILURE_BLOCKS_MAX: usize = 20;
 /// Max total bytes for failure blocks excerpt.
 const FAILURE_BLOCKS_MAX_BYTES: usize = 2_000;
 
-/// Truncate a line to `max_bytes`, appending "..." if truncated.
+/// Truncate a line to at most `max_bytes` bytes, respecting UTF-8 character
+/// boundaries. Appends "..." if truncated.
 fn truncate_line(line: &str, max_bytes: usize) -> String {
     if line.len() <= max_bytes {
-        line.to_string()
-    } else {
-        let truncated = &line[..max_bytes.saturating_sub(3)];
-        format!("{truncated}...")
+        return line.to_string();
     }
+    // Find the last char boundary at or before max_bytes - 3 (reserve room for "...")
+    let cutoff = (max_bytes.saturating_sub(3)).min(line.len());
+    let idx = line.floor_char_boundary(cutoff);
+    format!("{}...", &line[..idx])
 }
 
 // ============================================================================
@@ -61,6 +65,8 @@ pub struct Projection {
     pub excerpt: Option<String>,
     /// The output handle for recall.
     pub handle: String,
+    /// The projection provenance describing how this output was derived.
+    pub provenance: ProjectionProvenance,
     /// Suggested recall tools and usage guidance.
     pub recall_guidance: Vec<String>,
     /// Whether the output indicates a failure (shell exit != 0, test fail).
@@ -74,10 +80,12 @@ impl Projection {
     pub fn format(&self) -> String {
         let mut out = String::new();
 
-        // Header line with type and handle
+        // Header line with type, provenance, and handle
         out.push_str(&format!(
-            "[{} — handle: {}]\n",
-            self.type_label, self.handle
+            "[{} (provenance: {}) — handle: {}]\n",
+            self.type_label,
+            self.provenance.as_model_tag(),
+            self.handle
         ));
 
         // Summary lines
@@ -112,8 +120,8 @@ impl Projection {
     /// `estimate_tokens` in `tool_output_store`.
     pub fn estimated_tokens(&self) -> usize {
         let mut sum: usize = 0;
-        // Header: "[<type_label> — handle: <handle>]\n"
-        sum += 16 + self.type_label.len() + self.handle.len();
+        // Header: "[<type_label> (provenance: <provenance>) — handle: <handle>]\n"
+        sum += 30 + self.type_label.len() + self.provenance.as_model_tag().len() + self.handle.len();
         // Summary lines: "- <line>\n" each
         for line in &self.summary_lines {
             sum += 2 + line.len() + 1;
@@ -181,6 +189,7 @@ pub trait OutputProjector: Send + Sync {
             summary_lines,
             excerpt: None,
             handle,
+            provenance: ProjectionProvenance::TypedSummary,
             recall_guidance: vec![
                 format!(
                     "output_read handle={} start_line=1 end_line=500 — read content",
@@ -292,6 +301,7 @@ impl OutputProjector for ReadFileProjector {
             summary_lines,
             excerpt,
             handle,
+            provenance: ProjectionProvenance::AssetManifest,
             recall_guidance,
             is_failure: false,
         }
@@ -447,6 +457,7 @@ impl OutputProjector for SearchProjector {
             summary_lines,
             excerpt,
             handle,
+            provenance: ProjectionProvenance::AssetManifest,
             recall_guidance,
             is_failure: false,
         }
@@ -645,6 +656,7 @@ impl OutputProjector for ShellTestProjector {
             summary_lines,
             excerpt,
             handle,
+            provenance: ProjectionProvenance::AssetManifest,
             recall_guidance,
             is_failure,
         }
@@ -729,6 +741,7 @@ impl OutputProjector for DirectoryTreeProjector {
             summary_lines,
             excerpt,
             handle,
+            provenance: ProjectionProvenance::AssetManifest,
             recall_guidance,
             is_failure: false,
         }
@@ -887,6 +900,7 @@ impl OutputProjector for JsonDefaultProjector {
             summary_lines,
             excerpt,
             handle,
+            provenance: ProjectionProvenance::AssetManifest,
             recall_guidance,
             is_failure: false,
         }
@@ -992,6 +1006,7 @@ impl OutputProjector for GenericTextProjector {
             summary_lines,
             excerpt,
             handle,
+            provenance: ProjectionProvenance::AssetManifest,
             recall_guidance,
             is_failure: false,
         }
@@ -1175,6 +1190,7 @@ mod tests {
             summary_lines: vec!["line 1".into(), "line 2".into()],
             excerpt: Some("excerpt content".into()),
             handle: "out_abc_123".into(),
+            provenance: ProjectionProvenance::AssetManifest,
             recall_guidance: vec!["output_read handle=out_abc_123".into()],
             is_failure: false,
         };
@@ -1598,11 +1614,30 @@ Cargo.lock
             summary_lines: vec!["a".into()],
             excerpt: Some("b".into()),
             handle: "out_abc_123".into(),
+            provenance: ProjectionProvenance::AssetManifest,
             recall_guidance: vec!["c".into()],
             is_failure: false,
         };
         let t1 = proj.estimated_tokens();
         let t2 = proj.estimated_tokens();
         assert_eq!(t1, t2);
+    }
+
+    #[test]
+    fn truncate_line_cjk_and_emoji_safe() {
+        fn repeat_char(ch: char, count: usize) -> String {
+            std::iter::repeat(ch).take(count).collect()
+        }
+
+        let cjk_line = repeat_char('\u{4f60}', 250);
+        let result = truncate_line(&cjk_line, 500);
+        assert!(result.len() <= 500);
+        assert!(result.ends_with("..."));
+        assert!(!result.contains('\u{fffd}'));
+
+        let emoji_line = repeat_char('\u{1f389}', 200);
+        let result2 = truncate_line(&emoji_line, 500);
+        assert!(result2.len() <= 500);
+        assert!(result2.ends_with("..."));
     }
 }
