@@ -1028,19 +1028,18 @@ impl ToolOutputAssetStore {
                     content_hash, blob_path, line_index_path, chunk_index_path,
                     created_at, last_accessed_at, expired_at
              FROM tool_output_assets
-             WHERE handle = ?1",
+             WHERE handle = ?1 AND session_id = ?2",
         )
         .bind(handle)
+        .bind(session_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| RecallError::internal(handle, &e.to_string()))?;
 
+        // Non-disclosing: if the handle doesn't exist for this session, return
+        // NotFound regardless of whether it exists in another session.
+        // This prevents leaking cross-session handle existence.
         let row = row.ok_or_else(|| RecallError::not_found(handle))?;
-
-        // Validate session ownership
-        if row.session_id != session_id {
-            return Err(RecallError::unauthorized(handle));
-        }
 
         // Check lifecycle
         match row.lifecycle.as_str() {
@@ -1097,7 +1096,8 @@ impl ToolOutputAssetStore {
             })
     }
 
-    /// Read a byte range from the blob.
+    /// Read a byte range from the blob without loading the entire file.
+    /// Uses AsyncSeekExt + read_exact to only read the requested range.
     pub async fn read_blob_range(
         &self,
         asset: &ToolOutputAsset,
@@ -1112,21 +1112,21 @@ impl ToolOutputAssetStore {
                 &format!("start={start}, end={end}, total={}", asset.byte_count),
             ));
         }
-        let bytes = tokio::fs::read(&asset.blob_path).await.map_err(|e| {
-            RecallError::internal(asset.handle.as_str(), &format!("Failed to read blob: {e}"))
+        let len = end - start;
+        let mut file = tokio::fs::File::open(&asset.blob_path).await.map_err(|e| {
+            RecallError::internal(asset.handle.as_str(), &format!("Failed to open blob: {e}"))
         })?;
-        if end > bytes.len() {
-            return Err(RecallError::internal(
-                asset.handle.as_str(),
-                &format!(
-                    "Blob truncated: expected {} bytes, found {} bytes",
-                    asset.byte_count,
-                    bytes.len()
-                ),
-            ));
-        }
+        tokio::io::AsyncSeekExt::seek(&mut file, std::io::SeekFrom::Start(start as u64))
+            .await
+            .map_err(|e| {
+                RecallError::internal(asset.handle.as_str(), &format!("Failed to seek blob: {e}"))
+            })?;
+        let mut buf = vec![0u8; len];
+        tokio::io::AsyncReadExt::read_exact(&mut file, &mut buf).await.map_err(|e| {
+            RecallError::internal(asset.handle.as_str(), &format!("Failed to read blob range: {e}"))
+        })?;
         // Read as UTF-8, falling back to lossy if invalid
-        let s = String::from_utf8_lossy(&bytes[start..end]).into_owned();
+        let s = String::from_utf8_lossy(&buf).into_owned();
         Ok(s)
     }
 
@@ -1545,21 +1545,43 @@ mod tests {
     #[test]
     fn handle_format_and_prefix() {
         let handle = ToolOutputHandle::new("sess_abc123");
-        assert!(handle.as_str().starts_with("out_sess_abc"));
-        assert_eq!(handle.session_prefix().unwrap(), "sess_abc");
+        let s = handle.as_str();
+        assert!(s.starts_with("out_"));
+        let parts: Vec<&str> = s.split('_').collect();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0], "out");
+        assert_eq!(parts[1].len(), 8, "prefix must be SHA-256 hex[..8]");
+        assert!(parts[1].chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(!s.contains("sess_abc"), "raw session_id must not leak");
+        assert_eq!(handle.session_prefix().unwrap(), parts[1]);
     }
 
     #[test]
     fn handle_short_session_id() {
         let handle = ToolOutputHandle::new("s1");
-        assert!(handle.as_str().starts_with("out_s1_"));
+        let s = handle.as_str();
+        assert!(s.starts_with("out_"));
+        let parts: Vec<&str> = s.split('_').collect();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[1].len(), 8);
+        assert!(parts[1].chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(!s.contains("s1"), "raw session_id must not leak");
     }
 
     #[test]
     fn handle_display() {
         let handle = ToolOutputHandle::new("session_x");
         let display = format!("{handle}");
-        assert!(display.starts_with("out_session_"));
+        assert!(display.starts_with("out_"));
+        let parts: Vec<&str> = display.split('_').collect();
+        assert_eq!(parts.len(), 3, "expected out_<hex>_<uuid>");
+        assert_eq!(parts[1].len(), 8);
+        assert!(parts[1].chars().all(|c| c.is_ascii_hexdigit()));
+        // Same session_id produces same prefix (deterministic)
+        let h2 = ToolOutputHandle::new("session_x");
+        let d2 = format!("{h2}");
+        let p2: Vec<&str> = d2.split('_').collect();
+        assert_eq!(parts[1], p2[1], "same session_id => same hex prefix");
     }
 
     #[test]
@@ -1996,8 +2018,11 @@ mod store_tests {
         let err = store
             .get_asset(handle.as_str(), "other_session")
             .await
-            .expect_err("should be denied");
-        assert!(matches!(err, RecallError::Unauthorized { .. }));
+            .expect_err("should return error for cross-session access");
+        assert!(
+            matches!(err, RecallError::NotFound { .. }),
+            "cross-session access must be non-disclosing (NotFound, not Unauthorized)"
+        );
     }
 
     #[tokio::test]
@@ -2136,8 +2161,9 @@ mod store_tests {
     async fn non_utf8_output_handling() {
         let (store, tmp) = setup_store().await;
 
-        // Non-UTF8 bytes: valid UTF-8 bytes but binary-ish
-        let output = "[binary output with \\x00 bytes]".to_string();
+        // Phase 1 supports text output only (output: String).
+        // This test verifies text with escape sequences is stored faithfully.
+        let output = "[text output with escape sequences: \n\t\r and null-like: \\x00]".to_string();
 
         let input = CreateAssetInput {
             session_id: "sess_test_1".to_string(),
