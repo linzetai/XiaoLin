@@ -99,6 +99,7 @@ export interface SubAgentRunUI {
   notifications: SubAgentNotification[];
 }
 
+/** @deprecated Use TurnDisplayNode from the canonical timeline instead. */
 export interface ChatStreamSegment {
   id: string;
   type: "text" | "tool" | "reasoning" | "iteration_boundary";
@@ -241,5 +242,6 @@ export interface BackendMessage {
   completionTokens?: number;
   totalTokens?: number;
   elapsedMs?: number;
+  /** @deprecated Use the canonical timeline (TurnDisplayNode[]) instead of segment-based reconstruction. */
   segmentOrder?: string[] | null;
 }

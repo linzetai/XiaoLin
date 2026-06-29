@@ -30,22 +30,22 @@
 
 ## 4. Frontend Timeline Store
 
-- [ ] 4.1 Add a frontend timeline module with types, reducer, selectors, fixtures, and normalization helpers.
-- [ ] 4.2 Route live WebSocket timeline events through the same reducer used for replay.
-- [ ] 4.3 Update session loading to hydrate from display nodes or timeline events, not `BackendMessage.segmentOrder` or `toolCallsJson`.
-- [ ] 4.4 Implement reconnect recovery using last seen sequence and after-sequence loading.
-- [ ] 4.5 Remove active UI dependencies on `StreamSegment` reconstruction once node rendering is complete.
-- [ ] 4.6 Add reducer golden tests proving live event reduction and replay materialization produce equivalent normalized nodes.
+- [x] 4.1 Add a frontend timeline module with types, reducer, selectors, fixtures, and normalization helpers.
+- [x] 4.2 Route live WebSocket timeline events through the same reducer used for replay.
+- [x] 4.3 Update session loading to hydrate from display nodes or timeline events, not `BackendMessage.segmentOrder` or `toolCallsJson`.
+- [x] 4.4 Implement reconnect recovery using last seen sequence and after-sequence loading.
+- [x] 4.5 Remove active UI dependencies on `StreamSegment` reconstruction once node rendering is complete.
+- [x] 4.6 Add reducer golden tests proving live event reduction and replay materialization produce equivalent normalized nodes.
 
 ## 5. Codex-Style Message Stream UI
 
-- [ ] 5.1 Refactor `MessageRenderer` into a `TurnDisplayNode` renderer with node-specific components.
-- [ ] 5.2 Implement stable assistant text streaming with delta coalescing and markdown-safe in-progress rendering.
-- [ ] 5.3 Render reasoning nodes consistently for active and completed states, collapsed or secondary after completion.
-- [ ] 5.4 Render iteration boundary nodes at the timeline position where they occurred.
-- [ ] 5.5 Render terminal status nodes/notices for tool-loop, cancellation, abort, budget, and runtime-error endings without presenting partial assistant text as a normal completion.
-- [ ] 5.6 Ensure long transcripts and high-frequency deltas remain responsive with virtualization or bounded render work.
-- [ ] 5.7 Add frontend unit tests for text, reasoning, boundaries, approvals, terminal status, and replay hydration.
+- [x] 5.1 Refactor `MessageRenderer` into a `TurnDisplayNode` renderer with node-specific components.
+- [x] 5.2 Implement stable assistant text streaming with delta coalescing and markdown-safe in-progress rendering.
+- [x] 5.3 Render reasoning nodes consistently for active and completed states, collapsed or secondary after completion.
+- [x] 5.4 Render iteration boundary nodes at the timeline position where they occurred.
+- [x] 5.5 Render terminal status nodes/notices for tool-loop, cancellation, abort, budget, and runtime-error endings without presenting partial assistant text as a normal completion.
+- [x] 5.6 Ensure long transcripts and high-frequency deltas remain responsive with virtualization or bounded render work.
+- [x] 5.7 Add frontend unit tests for text, reasoning, boundaries, approvals, terminal status, and replay hydration.
 
 ## 6. Tool Step UI
 

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { useBrowserStore } from "../../lib/stores/browser-store";
 import { useStreamStore } from "../../lib/stores/stream-store";
+import { useTimelineStore } from "../../lib/stores/timeline-store";
 import { useQueueStore } from "../../lib/stores/queue-store";
 import { useLocaleStore } from "../../lib/stores/locale-store";
 import { useTerminalStore } from "../../lib/stores/terminal-store";
@@ -1088,6 +1089,16 @@ export function useMessageStreamChat({
                 mode: (d.mode as "normal" | "proactive") ?? "normal",
                 timestamp: Date.now(),
               });
+            }
+            break;
+          }
+          case "timeline_event": {
+            // Route canonical timeline events through the reducer.
+            // Both live delivery and history replay use the same reducer.
+            const d = event.data as Record<string, unknown> | undefined;
+            if (d?.session_id && d?.id && d?.seq != null) {
+              const resolvedChatId = (d.session_id as string) || capturedChatId;
+              useTimelineStore.getState().addEvent(resolvedChatId, d as unknown as import("../../lib/timeline/types").TurnTimelineEvent);
             }
             break;
           }

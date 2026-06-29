@@ -13,6 +13,8 @@ import type {
   ChatMessageToolCall,
   ChatMessageImage,
 } from "./types";
+import { useTimelineStore } from "./timeline-store";
+import * as api from "../api";
 
 function parseUtcTimestamp(ts: string): Date {
   if (!ts) return new Date();
@@ -121,7 +123,13 @@ function buildStreamItems(chatId: string, messages: BackendMessage[]): StreamIte
     });
 }
 
-/** Reconstruct per-message segment lists for restored assistant history. */
+/**
+ * Reconstruct per-message segment lists for restored assistant history.
+ *
+ * @deprecated The canonical timeline (TurnDisplayNode[]) is now the source of
+ * truth for UI transcript state. This function exists only for backward
+ * compatibility and will be removed when Phase 5 rendering is complete.
+ */
 function buildMessageSegments(chatId: string, messages: BackendMessage[]): Record<number, ChatStreamSegment[]> {
   const result: Record<number, ChatStreamSegment[]> = {};
   const toolResultMap = new Map<string, { content: string; success: boolean }>();
@@ -397,6 +405,33 @@ export const useStreamStore = create<StreamState>((set) => ({
   loadChatStream: (chatId, messages, hasMore) => {
     const items = buildStreamItems(chatId, messages);
     const messageSegments = buildMessageSegments(chatId, messages);
+
+    // Hydrate the canonical timeline store from display nodes.
+    // This replaces the legacy segmentOrder/toolCallsJson-based reconstruction.
+    api.getSessionDisplayNodes(chatId).then((page) => {
+      if (page.nodes && page.nodes.length > 0) {
+        // Convert raw nodes to TurnDisplayNode[] and load into timeline store.
+        const nodes = page.nodes.map((raw) => ({
+          ...raw,
+          kind: (raw.kind as string) || "system_notice",
+        })) as import("../timeline/types").TurnDisplayNode[];
+        useTimelineStore.getState().loadNodes(chatId, nodes);
+      } else {
+        // No display nodes yet — load raw timeline events as fallback.
+        api.getSessionTimeline(chatId, undefined, 2000).then((tl) => {
+          if (tl.events && tl.events.length > 0) {
+            useTimelineStore.getState().loadEvents(
+              chatId,
+              tl.events as unknown as import("../timeline/types").TurnTimelineEvent[],
+            );
+          }
+        }).catch(() => {
+          // Timeline not available for this session (pre-change session).
+        });
+      }
+    }).catch(() => {
+      // Timeline not available — session may be pre-change.
+    });
 
     set((state) => {
       const existing = state.streams[chatId];

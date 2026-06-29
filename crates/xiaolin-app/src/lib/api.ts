@@ -686,6 +686,91 @@ const SKIP_DIRS = new Set(["node_modules", ".git", "target", "dist", "build", "_
 const MAX_ENTRIES = 2000;
 const MAX_DEPTH = 5;
 
+// ─── Timeline API ───
+// Timeline endpoints use HTTP (REST), not WebSocket.
+// They are served by the gateway on the HTTP port.
+
+export interface TimelineEventsPage {
+  session_id: string;
+  events: Array<Record<string, unknown>>;
+  count: number;
+}
+
+export interface DisplayNodesPage {
+  session_id: string;
+  nodes: Array<Record<string, unknown>>;
+  count: number;
+}
+
+/**
+ * Fetch timeline events for a session, optionally after a given sequence.
+ * GET /sessions/:session_id/timeline?after_seq=&limit=
+ */
+export async function getSessionTimeline(
+  sessionId: string,
+  afterSeq?: number,
+  limit?: number,
+): Promise<TimelineEventsPage> {
+  const params = new URLSearchParams();
+  if (afterSeq != null) params.set("after_seq", String(afterSeq));
+  if (limit != null) params.set("limit", String(limit));
+  const qs = params.toString();
+  const path = `/sessions/${encodeURIComponent(sessionId)}/timeline${qs ? `?${qs}` : ""}`;
+  return await httpGet<TimelineEventsPage>(path);
+}
+
+/**
+ * Fetch materialized display nodes for a session.
+ * GET /sessions/:session_id/display-nodes
+ */
+export async function getSessionDisplayNodes(
+  sessionId: string,
+): Promise<DisplayNodesPage> {
+  const path = `/sessions/${encodeURIComponent(sessionId)}/display-nodes`;
+  return await httpGet<DisplayNodesPage>(path);
+}
+
+/**
+ * Fetch the maximum sequence number for a session's timeline.
+ * GET /sessions/:session_id/timeline/max-seq
+ */
+export async function getTimelineMaxSeq(
+  sessionId: string,
+): Promise<{ session_id: string; max_seq: number | null }> {
+  const path = `/sessions/${encodeURIComponent(sessionId)}/timeline/max-seq`;
+  return await httpGet<{ session_id: string; max_seq: number | null }>(path);
+}
+
+/**
+ * Fetch timeline events for a specific turn.
+ * GET /sessions/:session_id/turns/:turn_id/timeline
+ */
+export async function getTurnTimeline(
+  sessionId: string,
+  turnId: string,
+): Promise<TimelineEventsPage> {
+  const path = `/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/timeline`;
+  return await httpGet<TimelineEventsPage>(path);
+}
+
+/**
+ * Fetch tool output detail through the UI-authorized endpoint.
+ * GET /sessions/:session_id/tool-output/:handle
+ */
+export async function getToolOutputDetail(
+  sessionId: string,
+  handle: string,
+  params?: { range_start?: number; range_end?: number; tail_lines?: number },
+): Promise<Record<string, unknown>> {
+  const qs = new URLSearchParams();
+  if (params?.range_start != null) qs.set("range_start", String(params.range_start));
+  if (params?.range_end != null) qs.set("range_end", String(params.range_end));
+  if (params?.tail_lines != null) qs.set("tail_lines", String(params.tail_lines));
+  const query = qs.toString();
+  const path = `/sessions/${encodeURIComponent(sessionId)}/tool-output/${encodeURIComponent(handle)}${query ? `?${query}` : ""}`;
+  return await httpGet<Record<string, unknown>>(path);
+}
+
 // ─── LLM Plugin API ───
 
 export interface LlmPluginSummary {

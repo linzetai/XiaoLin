@@ -763,6 +763,7 @@ const CHAT_EVENT_TYPES = [
   "memory_recalled",
   "goal_updated",
   "goal_cleared",
+  "timeline_event",
 ] as const;
 
 export function chatStream(
@@ -1838,3 +1839,18 @@ export const deleteAgentIpc = async (agentId: string) => deleteAgent(agentId);
 export const uploadAgentAvatarIpc = uploadAgentAvatar;
 export const readIdentityFilesIpc = readIdentityFiles;
 export const reloadChannelIpc = async (_channelId: string) => false; // deprecated
+
+// ─── Timeline API types (implementation in api.ts to use HTTP) ───
+// Timeline endpoints use HTTP (REST), not WebSocket.
+
+export interface TimelineEventsPage {
+  session_id: string;
+  events: Array<Record<string, unknown>>;
+  count: number;
+}
+
+export interface DisplayNodesPage {
+  session_id: string;
+  nodes: Array<Record<string, unknown>>;
+  count: number;
+}

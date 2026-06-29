@@ -20,6 +20,7 @@ export {
 } from "./file-viewer-store";
 export type { OpenFile, FileViewerState } from "./file-viewer-store";
 export { useStreamStore, EMPTY_STREAM } from "./stream-store";
+export { useTimelineStore } from "./timeline-store";
 export { useQueueStore } from "./queue-store";
 export { useProjectStore } from "./project-store";
 export { useGitStore, initGitStore, destroyGitStore } from "./git-store";

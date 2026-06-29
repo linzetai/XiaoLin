@@ -12,6 +12,7 @@ import {
   teardownFileArtifactListener,
 } from "./stores/file-viewer-store";
 import { initBrowserEvents, teardownBrowserEvents } from "./stores/browser-store";
+import { recoverTimelineAfterReconnect } from "./timeline";
 
 export interface GatewayInfo {
   port: number;
@@ -133,6 +134,11 @@ export const useGatewayStore = create<GatewayState>((set) => ({
           set({ connected: true });
           syncBackendData();
           reloadArtifactsForCurrentSession();
+          // Recover timeline state for the active session
+          const activeId = useChatMetaStore.getState().activeChatId;
+          if (activeId) {
+            recoverTimelineAfterReconnect(activeId).catch(() => {});
+          }
         });
 
         try {
@@ -192,6 +198,11 @@ export const useGatewayStore = create<GatewayState>((set) => ({
           set({ connected: true });
           syncBackendData();
           reloadArtifactsForCurrentSession();
+          // Recover timeline state for the active session
+          const activeId = useChatMetaStore.getState().activeChatId;
+          if (activeId) {
+            recoverTimelineAfterReconnect(activeId).catch(() => {});
+          }
         });
 
         try {
