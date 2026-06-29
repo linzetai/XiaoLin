@@ -85,6 +85,9 @@ pub(crate) struct QueryLoopState {
     pub max_output_tokens_recovery_count: u32,
     pub has_attempted_reactive_compact: bool,
     pub max_output_recovery_exhausted: bool,
+    /// Whether we already gave the model one extra no-tool round to produce a
+    /// user-visible final answer after it ended with empty content.
+    pub final_answer_recovery_used: bool,
 
     // ── Token accumulation (streaming path) ──────────────────────────
     pub acc_prompt_tokens: u32,
@@ -109,6 +112,9 @@ pub(crate) struct QueryLoopState {
     // ── Tool repetition detection ────────────────────────────────────
     /// Per logical tool target call count within this query (path for read_file, etc.).
     tool_call_repetition_counts: HashMap<String, u32>,
+    /// Highest contiguous line range reached for a read_file path. Sequential
+    /// range scans are useful for large outputs and should not count as loops.
+    read_file_range_scan_ends: HashMap<String, u32>,
     /// Tracks the highest escalation level we've already applied,
     /// so each level fires at most once.
     repetition_escalation: u32,
@@ -201,6 +207,7 @@ impl QueryLoopState {
             max_output_tokens_recovery_count: 0,
             has_attempted_reactive_compact: false,
             max_output_recovery_exhausted: false,
+            final_answer_recovery_used: false,
 
             acc_prompt_tokens: 0,
             acc_completion_tokens: 0,
@@ -211,6 +218,7 @@ impl QueryLoopState {
             iteration_msg_boundaries: Vec::new(),
 
             tool_call_repetition_counts: HashMap::new(),
+            read_file_range_scan_ends: HashMap::new(),
             repetition_escalation: 0,
             repetition_warn_count: 0,
             repetition_force_stop_count: 0,
@@ -240,8 +248,13 @@ impl QueryLoopState {
     ///
     /// - `Warn` at [`TOOL_REPEAT_WARN_THRESHOLD`] repeated calls to the same target.
     /// - `ForceStop` at [`TOOL_REPEAT_HARD_LIMIT`] repeated calls.
-    /// - `read_file` counts by file path (offset/limit variants are the same target).
+    /// - `read_file` repeats by file path, except progressive non-overlapping
+    ///   ranges are treated as a legitimate scan of large output.
     pub fn record_tool_call(&mut self, tool_name: &str, arguments: &str) -> ToolRepetitionAction {
+        if self.is_progressive_read_file_range(tool_name, arguments) {
+            return ToolRepetitionAction::None;
+        }
+
         let key = super::tool_executor::tool_repetition_key(tool_name, arguments);
         let count = self.tool_call_repetition_counts.entry(key).or_insert(0);
         *count += 1;
@@ -257,6 +270,31 @@ impl QueryLoopState {
             return ToolRepetitionAction::Warn;
         }
         ToolRepetitionAction::None
+    }
+
+    fn is_progressive_read_file_range(&mut self, tool_name: &str, arguments: &str) -> bool {
+        if !tool_name.starts_with("read_file") {
+            return false;
+        }
+
+        let Some((path, start, end)) = parse_read_file_range(arguments) else {
+            return false;
+        };
+        if end < start {
+            return false;
+        }
+
+        match self.read_file_range_scan_ends.get_mut(&path) {
+            Some(prev_end) if start > *prev_end => {
+                *prev_end = end;
+                true
+            }
+            None => {
+                self.read_file_range_scan_ends.insert(path, end);
+                false
+            }
+            _ => false,
+        }
     }
 
     /// Read-only snapshot of repetition-detection triggers in this query.
@@ -515,6 +553,45 @@ impl QueryLoopState {
     }
 }
 
+fn parse_read_file_range(arguments: &str) -> Option<(String, u32, u32)> {
+    let value = serde_json::from_str::<serde_json::Value>(arguments).ok()?;
+    let path = value
+        .get("file_path")
+        .or_else(|| value.get("path"))
+        .and_then(|v| v.as_str())?
+        .to_string();
+
+    if let Some(lines) = value.get("lines").and_then(|v| v.as_str()) {
+        return parse_line_range(lines).map(|(start, end)| (path, start, end));
+    }
+
+    let offset = value
+        .get("offset")
+        .or_else(|| value.get("start_line"))
+        .and_then(|v| v.as_u64())?;
+    let limit = value
+        .get("limit")
+        .or_else(|| value.get("line_count"))
+        .and_then(|v| v.as_u64())?;
+    if offset == 0 || limit == 0 {
+        return None;
+    }
+    let start = u32::try_from(offset).ok()?;
+    let end_u64 = offset.saturating_add(limit).saturating_sub(1);
+    let end = u32::try_from(end_u64).ok()?;
+    Some((path, start, end))
+}
+
+fn parse_line_range(lines: &str) -> Option<(u32, u32)> {
+    let (start, end) = lines.split_once('-')?;
+    let start = start.trim().parse::<u32>().ok()?;
+    let end = end.trim().parse::<u32>().ok()?;
+    if start == 0 || end == 0 {
+        return None;
+    }
+    Some((start, end))
+}
+
 fn format_repetition_key(key: &str) -> String {
     if let Some(path) = key.strip_prefix("read_file\0path:") {
         return format!("read_file → {path}");
@@ -573,6 +650,7 @@ mod tests {
         assert!(!s.error_limit_reached);
         assert!(!s.grace_turn_active);
         assert!(!s.grace_turn_used);
+        assert!(!s.final_answer_recovery_used);
         assert_eq!(s.max_output_tokens_recovery_count, 0);
         assert_eq!(s.acc_prompt_tokens, 0);
         assert_eq!(s.last_estimated_tokens, 0);
@@ -1116,10 +1194,11 @@ mod tests {
     }
 
     #[test]
-    fn record_tool_call_same_path_different_offset_counts_together() {
+    fn record_tool_call_progressive_ranges_do_not_count_as_loop() {
         let mut s = QueryLoopState::new(10);
         let path_a = r#"{"file_path":"src/foo.ts","offset":1,"limit":100}"#;
         let path_b = r#"{"file_path":"src/foo.ts","offset":101,"limit":100}"#;
+        let path_c = r#"{"file_path":"src/foo.ts","lines":"201-300"}"#;
         assert_eq!(
             s.record_tool_call("read_file", path_a),
             ToolRepetitionAction::None
@@ -1129,9 +1208,29 @@ mod tests {
             ToolRepetitionAction::None
         );
         assert_eq!(
-            s.record_tool_call("read_file", path_a),
+            s.record_tool_call("read_file", path_c),
+            ToolRepetitionAction::None,
+            "progressive non-overlapping ranges should not trigger repetition"
+        );
+        assert_eq!(s.repetition_stats(), (0, 0));
+    }
+
+    #[test]
+    fn record_tool_call_repeated_same_range_still_warns() {
+        let mut s = QueryLoopState::new(10);
+        let args = r#"{"file_path":"src/foo.ts","lines":"1-100"}"#;
+        assert_eq!(
+            s.record_tool_call("read_file", args),
+            ToolRepetitionAction::None
+        );
+        assert_eq!(
+            s.record_tool_call("read_file", args),
+            ToolRepetitionAction::None
+        );
+        assert_eq!(
+            s.record_tool_call("read_file", args),
             ToolRepetitionAction::Warn,
-            "3rd read of same path (different offset) should trigger Warn"
+            "3rd read of same path and range should trigger Warn"
         );
     }
 

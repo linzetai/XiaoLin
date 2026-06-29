@@ -20,6 +20,17 @@ function parseUtcTimestamp(ts: string): Date {
   return new Date(ts.replace(" ", "T") + "Z");
 }
 
+function parseTextSegmentEntry(entry: string): string | null {
+  if (!entry.startsWith("text:")) return null;
+  const raw = entry.slice(5);
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "string" ? parsed : null;
+  } catch {
+    return raw;
+  }
+}
+
 /** Map a backend tool_calls_json entry to a ChatMessageToolCall, preserving truncation markers. */
 function mapToolCall(
   tc: NonNullable<BackendMessage["toolCallsJson"]>[number],
@@ -49,6 +60,9 @@ function mapToolCall(
     fullLength: tc.full_length,
     messageId,
     sessionId,
+    outputHandle: tc.output_handle,
+    outputSizeClass: tc.output_size_class,
+    outputIsExpandable: tc.output_is_expandable,
   };
 }
 
@@ -155,13 +169,22 @@ function buildMessageSegments(chatId: string, messages: BackendMessage[]): Recor
     let reasoningUsed = false;
 
     if (order && Array.isArray(order) && order.length > 0) {
+      const hasEncodedTextSegments = order.some((entry) => entry.startsWith("text:"));
+      const legacyTextEntries = order.filter((entry) => entry === "text").length;
       for (const entry of order) {
         if (entry === "reasoning" && message.reasoningContent && !reasoningUsed) {
           segments.push({ id: `msg-${message.id}-reasoning`, type: "reasoning", content: message.reasoningContent });
           reasoningUsed = true;
+        } else if (entry.startsWith("text:")) {
+          const segmentText = parseTextSegmentEntry(entry);
+          if (segmentText) {
+            segments.push({ id: `msg-${message.id}-text-${segments.length}`, type: "text", content: segmentText });
+          }
         } else if (entry === "text" && textContent) {
-          segments.push({ id: `msg-${message.id}-text-${segments.length}`, type: "text", content: textContent });
-          textContent = "";
+          if (!hasEncodedTextSegments && legacyTextEntries <= 1) {
+            segments.push({ id: `msg-${message.id}-text-${segments.length}`, type: "text", content: textContent });
+            textContent = "";
+          }
         } else if (entry.startsWith("tool:")) {
           const callId = entry.slice(5);
           const seg = toolCallMap.get(callId);
@@ -177,7 +200,7 @@ function buildMessageSegments(chatId: string, messages: BackendMessage[]): Recor
       for (const [id, seg] of toolCallMap) {
         if (!usedToolIds.has(id)) segments.push(seg);
       }
-      if (textContent) {
+      if (textContent && !hasEncodedTextSegments) {
         segments.push({ id: `msg-${message.id}-text-restored`, type: "text", content: textContent });
       }
     } else {

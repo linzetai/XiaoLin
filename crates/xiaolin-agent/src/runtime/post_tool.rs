@@ -162,6 +162,7 @@ pub(crate) async fn post_tool_processing(
                 limit_tokens: svc.context_window,
                 compressed: false,
                 tokens_saved: 0,
+                source: "post_tool",
             },
             false,
         )

@@ -31,6 +31,37 @@ const FILE_ARTIFACT_TOOLS: &[&str] = &[
     "multi_edit",
 ];
 
+const REALTIME_TOOL_OUTPUT_MAX_BYTES: usize = 8 * 1024;
+
+fn bounded_realtime_text(text: &str) -> String {
+    if text.len() <= REALTIME_TOOL_OUTPUT_MAX_BYTES {
+        return text.to_string();
+    }
+
+    let end = text.floor_char_boundary(REALTIME_TOOL_OUTPUT_MAX_BYTES);
+    let omitted = text.len().saturating_sub(end);
+    format!(
+        "{}\n\n[Output preview truncated for live display; {omitted} more bytes available from the saved session/tool output.]",
+        &text[..end]
+    )
+}
+
+fn realtime_tool_result_output(
+    ui_output: &str,
+    display_output: Option<&str>,
+    handle_projection: Option<&str>,
+) -> (String, Option<String>) {
+    if let Some(projection) = handle_projection {
+        return (bounded_realtime_text(projection), None);
+    }
+
+    let output = bounded_realtime_text(ui_output);
+    let display_output = display_output
+        .filter(|display| display.len() <= REALTIME_TOOL_OUTPUT_MAX_BYTES)
+        .map(ToString::to_string);
+    (output, display_output)
+}
+
 fn is_file_artifact_tool(tool_name: &str) -> bool {
     FILE_ARTIFACT_TOOLS.contains(&tool_name)
 }
@@ -699,16 +730,27 @@ pub(crate) async fn execute_tool_round(
             result.success,
         );
         let llm_out = format!("{header}\n{processed}");
+        let handle = handle_info.as_ref().map(|h| h.handle.clone());
+        let size_class = handle_info.as_ref().map(|h| h.size_class.clone());
+        let is_expandable = handle_info.as_ref().map(|h| h.is_expandable);
+        let (event_output, event_display_output) = realtime_tool_result_output(
+            result.ui_output(),
+            result.display_output.as_deref(),
+            handle_info.as_ref().map(|_| processed.as_str()),
+        );
         let _ = send_step(
             &svc.step_tx,
             AgentStep::ToolResult {
                 turn_id: svc.turn_id.clone(),
                 tool_name: tool_name.clone(),
                 call_id: call_id.clone(),
-                output: result.ui_output().to_string(),
-                display_output: result.display_output.clone(),
+                output: event_output,
+                display_output: event_display_output,
                 success: result.success,
                 metadata: result.metadata.clone(),
+                output_handle: handle,
+                output_size_class: size_class,
+                output_is_expandable: is_expandable,
             },
             false,
         )
@@ -952,6 +994,27 @@ fn classify_shell_command(command: &str) -> ShellCommandClass {
 #[cfg(test)]
 mod shell_classifier_tests {
     use super::*;
+
+    #[test]
+    fn realtime_tool_result_uses_handle_projection_without_full_blob() {
+        let full = "x".repeat(REALTIME_TOOL_OUTPUT_MAX_BYTES * 2);
+        let projection = "[tool output asset]\nhandle: out_123\npreview: short";
+        let (output, display_output) =
+            realtime_tool_result_output(&full, Some(&full), Some(projection));
+
+        assert_eq!(output, projection);
+        assert!(display_output.is_none());
+    }
+
+    #[test]
+    fn realtime_tool_result_bounds_non_asset_output() {
+        let full = "x".repeat(REALTIME_TOOL_OUTPUT_MAX_BYTES + 128);
+        let (output, display_output) = realtime_tool_result_output(&full, None, None);
+
+        assert!(output.len() < full.len());
+        assert!(output.contains("Output preview truncated for live display"));
+        assert!(display_output.is_none());
+    }
 
     #[test]
     fn read_only_cat_head_tail() {

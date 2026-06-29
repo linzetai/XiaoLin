@@ -154,10 +154,10 @@ export type AgentEvent =
   | { type: "content_delta"; turn_id: TurnId; delta: unknown }
   | { type: "reasoning_delta"; turn_id: TurnId; content: string }
   | { type: "tool_executing"; turn_id: TurnId; tool_name: string; call_id: string; args?: string }
-  | { type: "tool_result"; turn_id: TurnId; tool_name: string; call_id: string; output: string; display_output?: string; success: boolean; metadata?: unknown }
+  | { type: "tool_result"; turn_id: TurnId; tool_name: string; call_id: string; output: string; display_output?: string; success: boolean; metadata?: unknown; output_handle?: string; output_size_class?: string; output_is_expandable?: boolean }
   | { type: "tool_progress"; turn_id: TurnId; tool_name: string; call_id: string; message: string; progress?: number; partial_output?: string }
   | { type: "ask_question"; turn_id: TurnId; request_id: string; question: string; options: AskQuestionOption[]; timeout_secs?: number; allow_multiple?: boolean }
-  | { type: "context_usage_update"; turn_id: TurnId; used_tokens: number; limit_tokens: number; compressed: boolean; tokens_saved?: number }
+  | { type: "context_usage_update"; turn_id: TurnId; used_tokens: number; limit_tokens: number; compressed: boolean; tokens_saved?: number; source?: "pre_query" | "post_tool" | string }
   | { type: "context_warning"; turn_id: TurnId; level: ContextWarningLevel; used_tokens: number; limit_tokens: number; message: string }
   | { type: "compact_boundary"; turn_id: TurnId; trigger: CompactTrigger; pre_compact_tokens: number; post_compact_tokens: number; messages_removed: number }
   | { type: "mode_change"; turn_id: TurnId; from: ExecutionMode; to: ExecutionMode }

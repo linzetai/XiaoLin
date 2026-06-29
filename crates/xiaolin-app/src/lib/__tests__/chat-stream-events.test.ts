@@ -221,6 +221,140 @@ describe("chat stream event flow", () => {
     });
   });
 
+  describe("tool result with output handles (Phase 10)", () => {
+    it("delivers tool_result event with output handle fields", () => {
+      let resultEvent: ChatStreamEvent | null = null;
+      mock.chatStream(
+        { messages: [{ role: "user", content: "read large file" }] },
+        (e) => {
+          if (e.type === "tool_result") resultEvent = e;
+        },
+      );
+
+      mock.fire({
+        type: "tool_result",
+        data: {
+          type: "tool_result",
+          turn_id: "t1",
+          tool_name: "file_read",
+          call_id: "tc-handle-1",
+          success: true,
+          output: "[ReadFile — handle: out_abc123_xyz]...",
+          output_handle: "out_abc123_xyz",
+          output_size_class: "large",
+          output_is_expandable: true,
+        },
+      });
+
+      expect(resultEvent).not.toBeNull();
+      expect(resultEvent!.data?.output_handle).toBe("out_abc123_xyz");
+      expect(resultEvent!.data?.output_size_class).toBe("large");
+      expect(resultEvent!.data?.output_is_expandable).toBe(true);
+    });
+
+    it("tool_result without handle fields is still delivered correctly", () => {
+      let resultEvent: ChatStreamEvent | null = null;
+      mock.chatStream(
+        { messages: [{ role: "user", content: "read small file" }] },
+        (e) => {
+          if (e.type === "tool_result") resultEvent = e;
+        },
+      );
+
+      mock.fire({
+        type: "tool_result",
+        data: {
+          type: "tool_result",
+          turn_id: "t1",
+          tool_name: "file_read",
+          call_id: "tc-no-handle",
+          success: true,
+          output: "small file content",
+        },
+      });
+
+      expect(resultEvent).not.toBeNull();
+      expect(resultEvent!.data?.output).toBe("small file content");
+      expect(resultEvent!.data?.output_handle).toBeUndefined();
+      expect(resultEvent!.data?.output_size_class).toBeUndefined();
+      expect(resultEvent!.data?.output_is_expandable).toBeUndefined();
+    });
+
+    it("delivers multiple tool results with mixed handle presence", () => {
+      const results: Array<{ callId: string; handle?: string; sizeClass?: string }> = [];
+      mock.chatStream(
+        { messages: [{ role: "user", content: "search and read" }] },
+        (e) => {
+          if (e.type === "tool_result") {
+            results.push({
+              callId: e.data?.call_id as string,
+              handle: e.data?.output_handle as string | undefined,
+              sizeClass: e.data?.output_size_class as string | undefined,
+            });
+          }
+        },
+      );
+
+      // Large output with handle
+      mock.fire({
+        type: "tool_result",
+        data: {
+          type: "tool_result", turn_id: "t1", tool_name: "shell_exec",
+          call_id: "tc-large", success: true, output: "[shell — handle: out_1]",
+          output_handle: "out_1", output_size_class: "large", output_is_expandable: true,
+        },
+      });
+      // Medium output with handle
+      mock.fire({
+        type: "tool_result",
+        data: {
+          type: "tool_result", turn_id: "t1", tool_name: "search",
+          call_id: "tc-medium", success: true, output: "[search — handle: out_2]",
+          output_handle: "out_2", output_size_class: "medium", output_is_expandable: true,
+        },
+      });
+      // Small output — no handle
+      mock.fire({
+        type: "tool_result",
+        data: {
+          type: "tool_result", turn_id: "t1", tool_name: "read_file",
+          call_id: "tc-small", success: true, output: "short inline content",
+        },
+      });
+      mock.fire({ type: "turn_end", data: { type: "turn_end", turn_id: "t1", summary: {} } });
+
+      expect(results).toHaveLength(3);
+      expect(results[0].handle).toBe("out_1");
+      expect(results[0].sizeClass).toBe("large");
+      expect(results[1].handle).toBe("out_2");
+      expect(results[1].sizeClass).toBe("medium");
+      expect(results[2].handle).toBeUndefined();
+    });
+
+    it("tool_result with handle but is_expandable false still receives handle", () => {
+      let resultEvent: ChatStreamEvent | null = null;
+      mock.chatStream(
+        { messages: [{ role: "user", content: "read" }] },
+        (e) => {
+          if (e.type === "tool_result") resultEvent = e;
+        },
+      );
+
+      mock.fire({
+        type: "tool_result",
+        data: {
+          type: "tool_result", turn_id: "t1", tool_name: "read_file",
+          call_id: "tc-expired", success: true, output: "content",
+          output_handle: "out_expired", output_size_class: "large", output_is_expandable: false,
+        },
+      });
+
+      expect(resultEvent).not.toBeNull();
+      expect(resultEvent!.data?.output_handle).toBe("out_expired");
+      expect(resultEvent!.data?.output_is_expandable).toBe(false);
+    });
+  });
+
   describe("error handling", () => {
     it("delivers error event", () => {
       let errorEvent: ChatStreamEvent | null = null;

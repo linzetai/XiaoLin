@@ -46,6 +46,12 @@ pub enum AgentStep {
         display_output: Option<String>,
         success: bool,
         metadata: Option<serde_json::Value>,
+        /// Output asset handle (e.g. "out_<sha256>_<uuid>") when large output was assetized.
+        output_handle: Option<String>,
+        /// Size classification: "small" | "medium" | "large".
+        output_size_class: Option<String>,
+        /// Whether asset-scoped expansion through the handle API is available.
+        output_is_expandable: Option<bool>,
     },
 
     /// Marks the boundary between tool rounds (after all results, before next LLM call).
@@ -66,6 +72,7 @@ pub enum AgentStep {
         limit_tokens: u32,
         compressed: bool,
         tokens_saved: u32,
+        source: &'static str,
     },
 
     ContextWarning {
@@ -211,6 +218,9 @@ impl AgentStep {
                 display_output,
                 success,
                 metadata,
+                output_handle,
+                output_size_class,
+                output_is_expandable,
             } => {
                 vec![AgentEvent::ToolResult {
                     turn_id,
@@ -220,6 +230,9 @@ impl AgentStep {
                     display_output,
                     success,
                     metadata,
+                    output_handle,
+                    output_size_class,
+                    output_is_expandable,
                 }]
             }
 
@@ -229,6 +242,7 @@ impl AgentStep {
                 limit_tokens,
                 compressed,
                 tokens_saved,
+                source,
             } => {
                 vec![AgentEvent::ContextUsageUpdate {
                     turn_id,
@@ -236,6 +250,7 @@ impl AgentStep {
                     limit_tokens,
                     compressed,
                     tokens_saved,
+                    source: Some(source.to_string()),
                 }]
             }
 

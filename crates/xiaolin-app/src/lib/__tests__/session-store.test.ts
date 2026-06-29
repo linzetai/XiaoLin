@@ -218,6 +218,71 @@ describe("store integration (new multi-store)", () => {
       expect(segments[11][2].content).toBe("thinking second");
     });
 
+    it("restores encoded text segments in persisted order", () => {
+      const chatId = useChatMetaStore.getState().activeChatId;
+
+      useStreamStore.getState().loadChatStream(chatId, [
+        {
+          id: 12,
+          role: "assistant",
+          content: "before toolafter tool",
+          name: null,
+          toolCallId: null,
+          toolCallsJson: [
+            {
+              id: "tc-1",
+              type: "function",
+              function: { name: "read_file", arguments: '{"path":"a"}' },
+              output: "file a",
+              success: true,
+            },
+          ],
+          createdAt: "2024-01-01 00:00:00",
+          segmentOrder: [
+            `text:${JSON.stringify("before tool")}`,
+            "tool:tc-1",
+            `text:${JSON.stringify("after tool")}`,
+          ],
+        },
+      ]);
+
+      const segments = useStreamStore.getState().messageSegments[chatId][12];
+      expect(segments.map((s) => s.type)).toEqual(["text", "tool", "text"]);
+      expect(segments[0].content).toBe("before tool");
+      expect(segments[1].toolCall?.id).toBe("tc-1");
+      expect(segments[2].content).toBe("after tool");
+    });
+
+    it("does not place legacy repeated text content before restored tools", () => {
+      const chatId = useChatMetaStore.getState().activeChatId;
+
+      useStreamStore.getState().loadChatStream(chatId, [
+        {
+          id: 13,
+          role: "assistant",
+          content: "all legacy text",
+          name: null,
+          toolCallId: null,
+          toolCallsJson: [
+            {
+              id: "tc-1",
+              type: "function",
+              function: { name: "search_in_files", arguments: '{"pattern":"x"}' },
+              output: "matches",
+              success: true,
+            },
+          ],
+          createdAt: "2024-01-01 00:00:00",
+          segmentOrder: ["text", "tool:tc-1", "text"],
+        },
+      ]);
+
+      const segments = useStreamStore.getState().messageSegments[chatId][13];
+      expect(segments.map((s) => s.type)).toEqual(["tool", "text"]);
+      expect(segments[0].toolCall?.id).toBe("tc-1");
+      expect(segments[1].content).toBe("all legacy text");
+    });
+
     it("merges restored segments when prepending older history", () => {
       const chatId = useChatMetaStore.getState().activeChatId;
 

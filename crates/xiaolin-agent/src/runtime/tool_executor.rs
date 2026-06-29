@@ -71,8 +71,8 @@ fn save_truncated_output(tool_name: &str, output: &str) -> Option<String> {
 /// beginning and ~80% from the end (the tail is usually more relevant since
 /// it contains the final state, errors, or results).
 ///
-/// If truncation occurs, the full output is saved to a temp file and the
-/// agent is told it can use `read_file` to retrieve the complete content.
+/// If truncation occurs, the full output is saved under the state directory as
+/// a fallback, but the hint nudges the agent toward narrower commands first.
 ///
 /// Falls back to `MAX_TOOL_RESULT_CHARS` (100_000) when `char_limit_override`
 /// is `None` — callers should always pass `Some(tool.max_result_size_chars())`.
@@ -147,7 +147,8 @@ pub(crate) fn truncate_tool_result_output_with_limit(
         tail_parts.join("\n"),
     );
 
-    if let Some(saved_path) = save_truncated_output(tool_name, output) {
+    let saved_path = save_truncated_output(tool_name, output);
+    if let Some(saved_path) = saved_path.as_deref() {
         let is_read_only_shell_read = is_shell_read_only_file_read(tool_name, arguments);
         tracing::info!(
             target: "agent.compaction",
@@ -157,21 +158,61 @@ pub(crate) fn truncate_tool_result_output_with_limit(
             is_read_only_shell_read,
             "truncated tool output saved for read_file recovery"
         );
-        let hint = if is_read_only_shell_read {
-            format!(
-                "[Truncated output from a file-read command — use read_file directly on \
-                 the original file with specific line ranges instead of reading {}]",
-                saved_path
-            )
-        } else {
-            format!(
-                "[Full output ({total_chars} chars) saved to: {saved_path} — use read_file to view if needed]",
-            )
-        };
-        format!("{truncated_body}\n\n{hint}")
-    } else {
-        truncated_body
     }
+
+    let hint =
+        build_truncation_recovery_hint(tool_name, arguments, total_chars, saved_path.as_deref());
+    format!("{truncated_body}\n\n{hint}")
+}
+
+fn build_truncation_recovery_hint(
+    tool_name: &str,
+    arguments: &str,
+    total_chars: usize,
+    saved_path: Option<&str>,
+) -> String {
+    if is_shell_read_only_file_read(tool_name, arguments) {
+        let _ = saved_path;
+        return "[Truncated output from a file-read command. Use read_file directly on \
+                the original file with specific line ranges.]"
+            .to_string();
+    }
+
+    if is_git_diff_command(tool_name, arguments) {
+        return format!(
+            "[Git diff output truncated ({total_chars} chars). Review the preview first. \
+             If more detail is needed, prefer narrower commands such as \
+             `git diff --stat`, `git diff --name-only`, or `git diff -- <path>`.]"
+        );
+    }
+
+    let _ = saved_path;
+    format!(
+        "[Output truncated ({total_chars} chars). Use the preview first. \
+         If more detail is needed, prefer a narrower command or search.]"
+    )
+}
+
+fn is_git_diff_command(tool_name: &str, arguments: &str) -> bool {
+    if !(tool_name.starts_with("shell_exec")
+        || tool_name.starts_with("shell")
+        || tool_name.starts_with("run_command"))
+    {
+        return false;
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(arguments) else {
+        return false;
+    };
+    let Some(command) = value.get("command").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    let trimmed = command.trim();
+    trimmed == "git diff" || trimmed.starts_with("git diff ") || is_git_configured_diff(trimmed)
+}
+
+fn is_git_configured_diff(command: &str) -> bool {
+    let parts: Vec<&str> = command.split_whitespace().collect();
+    parts.first() == Some(&"git") && parts.iter().skip(1).any(|part| *part == "diff")
 }
 
 /// Compactable tool names whose old results can be progressively faded.
@@ -2270,6 +2311,102 @@ mod anchor_protection_tests {
 #[cfg(test)]
 mod repetition_key_tests {
     use super::*;
+
+    #[test]
+    fn git_diff_truncation_hint_prefers_narrower_commands() {
+        let output = (0..120)
+            .map(|idx| format!("+changed line {idx}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let rendered = truncate_tool_result_output_with_limit(
+            &output,
+            "shell_exec",
+            r#"{"command":"git diff"}"#,
+            Some(50_000),
+        );
+
+        assert!(
+            rendered.contains("[Git diff output truncated"),
+            "got: {rendered}"
+        );
+        assert!(rendered.contains("git diff --stat"));
+        assert!(rendered.contains("git diff --name-only"));
+        assert!(rendered.contains("git diff -- <path>"));
+        assert!(
+            !rendered.contains("use read_file to view"),
+            "git diff truncation should not directly steer the model to read the saved blob"
+        );
+        assert!(
+            !rendered.contains(".xiaolin/data/truncated"),
+            "git diff truncation should not expose the saved fallback path"
+        );
+    }
+
+    #[test]
+    fn git_diff_truncation_hint_hides_saved_fallback_path() {
+        let hint = build_truncation_recovery_hint(
+            "shell_exec",
+            r#"{"command":"git diff"}"#,
+            58_843,
+            Some("/home/user/.xiaolin/data/truncated/shell_exec_1.output"),
+        );
+
+        assert!(hint.contains("git diff --stat"));
+        assert!(!hint.contains(".xiaolin/data/truncated"), "got: {hint}");
+        assert!(!hint.contains("shell_exec_1.output"), "got: {hint}");
+    }
+
+    #[test]
+    fn generic_truncation_hint_avoids_direct_read_file_steer() {
+        let output = (0..120)
+            .map(|idx| format!("line {idx}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let rendered = truncate_tool_result_output_with_limit(
+            &output,
+            "shell_exec",
+            r#"{"command":"some noisy command"}"#,
+            Some(50_000),
+        );
+
+        assert!(rendered.contains("prefer a narrower command or search"));
+        assert!(
+            !rendered.contains("use read_file to view"),
+            "generic truncation should not make saved-blob reads the default path"
+        );
+        assert!(
+            !rendered.contains(".xiaolin/data/truncated"),
+            "generic truncation should not expose the saved fallback path"
+        );
+    }
+
+    #[test]
+    fn generic_truncation_hint_hides_saved_fallback_path() {
+        let hint = build_truncation_recovery_hint(
+            "shell_exec",
+            r#"{"command":"some noisy command"}"#,
+            120_000,
+            Some("/home/user/.xiaolin/data/truncated/shell_exec_2.output"),
+        );
+
+        assert!(hint.contains("prefer a narrower command or search"));
+        assert!(!hint.contains(".xiaolin/data/truncated"), "got: {hint}");
+        assert!(!hint.contains("shell_exec_2.output"), "got: {hint}");
+    }
+
+    #[test]
+    fn read_only_shell_hint_hides_saved_fallback_path() {
+        let hint = build_truncation_recovery_hint(
+            "shell_exec",
+            r#"{"command":"sed -n '1,400p' src/main.rs"}"#,
+            120_000,
+            Some("/home/user/.xiaolin/data/truncated/shell_exec_3.output"),
+        );
+
+        assert!(hint.contains("original file with specific line ranges"));
+        assert!(!hint.contains(".xiaolin/data/truncated"), "got: {hint}");
+        assert!(!hint.contains("shell_exec_3.output"), "got: {hint}");
+    }
 
     #[test]
     fn shell_cat_normalizes_to_read_file_key() {

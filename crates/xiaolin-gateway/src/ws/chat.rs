@@ -857,6 +857,7 @@ pub async fn spawn_chat(
         let mut stream_ended = false;
         let mut after_chat_called = false;
         let mut segment_order: Vec<String> = Vec::new();
+        let mut pending_text_segment = String::new();
         let mut last_segment_type: &str = "";
         let mut current_turn_id: Option<xiaolin_protocol::TurnId> = None;
 
@@ -962,6 +963,7 @@ pub async fn spawn_chat(
                     reserved = 0.0;
                 }
                 if !after_chat_called && !assistant_content.is_empty() {
+                    flush_pending_text_segment(&mut segment_order, &mut pending_text_segment);
                     let seg_order = if segment_order.is_empty() {
                         None
                     } else {
@@ -993,6 +995,7 @@ pub async fn spawn_chat(
                 ..
             } = event
             {
+                flush_pending_text_segment(&mut segment_order, &mut pending_text_segment);
                 segment_order.push(format!("tool:{}", call_id));
                 last_segment_type = "tool";
                 tracked_tools.push(TrackedToolCallData {
@@ -1005,6 +1008,9 @@ pub async fn spawn_chat(
                     metadata: None,
                     start_ms: chat_start.elapsed().as_millis() as u64,
                     duration_ms: None,
+                    output_handle: None,
+                    output_size_class: None,
+                    output_is_expandable: None,
                 });
             }
             if let AgentEvent::ToolResult {
@@ -1013,6 +1019,9 @@ pub async fn spawn_chat(
                 ref display_output,
                 success,
                 ref metadata,
+                ref output_handle,
+                ref output_size_class,
+                ref output_is_expandable,
                 ..
             } = event
             {
@@ -1022,6 +1031,9 @@ pub async fn spawn_chat(
                     tc.success = Some(success);
                     tc.metadata = metadata.clone();
                     tc.duration_ms = Some(chat_start.elapsed().as_millis() as u64 - tc.start_ms);
+                    tc.output_handle = output_handle.clone();
+                    tc.output_size_class = output_size_class.clone();
+                    tc.output_is_expandable = *output_is_expandable;
 
                     if success {
                         let should_refresh = match tc.name.as_str() {
@@ -1070,6 +1082,7 @@ pub async fn spawn_chat(
                     reserved = 0.0;
                 }
                 if !after_chat_called && !assistant_content.is_empty() {
+                    flush_pending_text_segment(&mut segment_order, &mut pending_text_segment);
                     let seg_order = if segment_order.is_empty() {
                         None
                     } else {
@@ -1103,9 +1116,9 @@ pub async fn spawn_chat(
                     .and_then(|c| c.as_str())
                 {
                     if last_segment_type != "text" {
-                        segment_order.push("text".to_string());
                         last_segment_type = "text";
                     }
+                    pending_text_segment.push_str(text);
                     assistant_content.push_str(text);
                     if assistant_content.len() > MAX_CONTENT_BYTES {
                         tracing::error!(
@@ -1119,6 +1132,10 @@ pub async fn spawn_chat(
                 }
             }
             if let AgentEvent::ReasoningDelta { ref content, .. } = event {
+                if content.is_empty() {
+                    continue;
+                }
+                flush_pending_text_segment(&mut segment_order, &mut pending_text_segment);
                 if last_segment_type != "reasoning" {
                     segment_order.push("reasoning".to_string());
                     last_segment_type = "reasoning";
@@ -1138,6 +1155,7 @@ pub async fn spawn_chat(
                 );
             }
             if is_done && !after_chat_called && !assistant_content.is_empty() {
+                flush_pending_text_segment(&mut segment_order, &mut pending_text_segment);
                 let seg_order = if segment_order.is_empty() {
                     None
                 } else {
@@ -1312,6 +1330,7 @@ pub async fn spawn_chat(
                 if turn_cancel.is_cancelled() {
                     assistant_content.push_str("\n\n[此回复因超时被截断]");
                 }
+                flush_pending_text_segment(&mut segment_order, &mut pending_text_segment);
                 let seg_order = if segment_order.is_empty() {
                     None
                 } else {
@@ -1356,6 +1375,19 @@ pub async fn spawn_chat(
 /// not present on the `ToolCall` struct. The extra fields are silently
 /// ignored by `serde_json::from_str::<Vec<ToolCall>>` on the LLM load
 /// path, keeping the LLM context clean.
+fn flush_pending_text_segment(segment_order: &mut Vec<String>, pending_text_segment: &mut String) {
+    if pending_text_segment.is_empty() {
+        return;
+    }
+
+    let Ok(encoded) = serde_json::to_string(pending_text_segment.as_str()) else {
+        pending_text_segment.clear();
+        return;
+    };
+    segment_order.push(format!("text:{encoded}"));
+    pending_text_segment.clear();
+}
+
 fn build_enriched_tool_calls_json(tracked: &[TrackedToolCallData]) -> Option<String> {
     if tracked.is_empty() {
         return None;
@@ -1386,6 +1418,15 @@ fn build_enriched_tool_calls_json(tracked: &[TrackedToolCallData]) -> Option<Str
             if let Some(ref metadata) = tc.metadata {
                 obj["metadata"] = metadata.clone();
             }
+            if let Some(ref output_handle) = tc.output_handle {
+                obj["output_handle"] = json!(output_handle);
+            }
+            if let Some(ref output_size_class) = tc.output_size_class {
+                obj["output_size_class"] = json!(output_size_class);
+            }
+            if let Some(output_is_expandable) = tc.output_is_expandable {
+                obj["output_is_expandable"] = json!(output_is_expandable);
+            }
             obj
         })
         .collect();
@@ -1403,6 +1444,9 @@ struct TrackedToolCallData {
     metadata: Option<serde_json::Value>,
     start_ms: u64,
     duration_ms: Option<u64>,
+    output_handle: Option<String>,
+    output_size_class: Option<String>,
+    output_is_expandable: Option<bool>,
 }
 
 pub async fn handle_goal_action(

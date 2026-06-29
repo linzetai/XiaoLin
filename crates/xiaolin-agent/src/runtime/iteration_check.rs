@@ -249,6 +249,7 @@ pub(crate) async fn iteration_pre_check(
             limit_tokens: svc.context_window,
             compressed: compact_result.compressed_by_llm,
             tokens_saved: compact_result.tokens_saved_by_llm as u32,
+            source: "pre_query",
         },
         false,
     )

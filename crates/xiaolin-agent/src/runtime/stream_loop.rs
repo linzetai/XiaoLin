@@ -115,7 +115,11 @@ impl AgentRuntime {
             }
             let _abort_guard = AbortOnDrop(abort_handle);
 
+            let mut saw_terminal_or_error = false;
             while let Some(step) = step_rx.recv().await {
+                if matches!(step, AgentStep::TurnEnd { .. } | AgentStep::Error { .. }) {
+                    saw_terminal_or_error = true;
+                }
                 yield step;
             }
 
@@ -123,7 +127,7 @@ impl AgentRuntime {
                 Ok(Ok(_summary)) => {
                     // TurnEnd was already emitted via step_tx and yielded above.
                 }
-                Ok(Err(e)) => {
+                Ok(Err(e)) if !saw_terminal_or_error => {
                     yield AgentStep::Error {
                         turn_id: xiaolin_protocol::TurnId::generate(),
                         message: e.to_string(),
@@ -131,10 +135,11 @@ impl AgentRuntime {
                         recoverable: false,
                     };
                 }
+                Ok(Err(_)) => {}
                 Err(join_err) if join_err.is_cancelled() => {
                     // Task was aborted by our guard — not a panic.
                 }
-                Err(join_err) => {
+                Err(join_err) if !saw_terminal_or_error => {
                     yield AgentStep::Error {
                         turn_id: xiaolin_protocol::TurnId::generate(),
                         message: format!("execution task panicked: {join_err}"),
@@ -142,6 +147,7 @@ impl AgentRuntime {
                         recoverable: false,
                     };
                 }
+                Err(_) => {}
             }
         }
     }

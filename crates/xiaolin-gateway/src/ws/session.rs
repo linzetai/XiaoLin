@@ -117,6 +117,11 @@ pub async fn handle_sessions_get(
 /// Larger outputs are truncated and the frontend lazy-loads them on expand.
 const INLINE_TOOL_OUTPUT_MAX_CHARS: usize = 8_192;
 
+/// Maximum safe output size for full-blob return via WebSocket.
+/// Larger outputs should use ranged reads instead of full-blob fetch.
+/// Leaves headroom from MAX_MESSAGE_SIZE for JSON framing and transport fields.
+const MAX_SAFE_FULL_BLOB_BYTES: usize = 4 * 1024 * 1024 - 4 * 1024;
+
 fn parse_tool_calls_json(raw: Option<&str>) -> Vec<serde_json::Value> {
     match raw.and_then(|tc| serde_json::from_str::<serde_json::Value>(tc).ok()) {
         Some(serde_json::Value::Array(arr)) => arr,
@@ -389,6 +394,146 @@ pub async fn handle_sessions_tool_output(
                     msg_type: "error".into(),
                     data: None,
                     error: Some(json!({"message": format!("{e}")})),
+                },
+            )
+            .await;
+        }
+    }
+}
+
+/// Handle lazy-load of full tool output by asset handle.
+/// Accepts `sessionId` and `handle` (the `out_<sha256>_<uuid>` string).
+/// Validates session-scoped ownership before returning content.
+pub async fn handle_sessions_tool_output_by_handle(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    req_id: Option<String>,
+    params: serde_json::Value,
+) {
+    use xiaolin_session::tool_output_store::ToolOutputAssetStore;
+
+    let Some(sid) = params.get("sessionId").and_then(|v| v.as_str()) else {
+        send_resp(
+            sender,
+            &WsResponse {
+                id: req_id,
+                msg_type: "error".into(),
+                data: None,
+                error: Some(json!({"code": -32602, "message": "sessionId required"})),
+            },
+        )
+        .await;
+        return;
+    };
+    let Some(handle) = params.get("handle").and_then(|v| v.as_str()) else {
+        send_resp(
+            sender,
+            &WsResponse {
+                id: req_id,
+                msg_type: "error".into(),
+                data: None,
+                error: Some(json!({"code": -32602, "message": "handle required"})),
+            },
+        )
+        .await;
+        return;
+    };
+
+    // Open a ToolOutputAssetStore using the session's SQLite pool.
+    let pool = state.store.session_store.pool();
+    let store = match ToolOutputAssetStore::open(pool).await {
+        Ok(s) => s,
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"message": format!("{e}")})),
+                },
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Validate handle ownership and lifecycle.
+    match store.get_asset(handle, sid).await {
+        Ok(asset) => {
+            // Reject full-blob reads for assets that are too large for a single WS message.
+            if asset.byte_count > MAX_SAFE_FULL_BLOB_BYTES {
+                send_resp(
+                    sender,
+                    &WsResponse {
+                        id: req_id,
+                        msg_type: "error".into(),
+                        data: None,
+                        error: Some(json!({
+                            "code": 413,
+                            "message": format!(
+                                "output too large for full fetch ({} bytes); use ranged reads instead",
+                                asset.byte_count
+                            )
+                        })),
+                    },
+                )
+                .await;
+                return;
+            }
+            match store.read_blob(&asset, sid).await {
+                Ok(output) => {
+                    let response = WsResponse {
+                        id: req_id.clone(),
+                        msg_type: "sessions.tool_output_by_handle".into(),
+                        data: Some(json!({
+                            "output": output,
+                        })),
+                        error: None,
+                    };
+                    let serialized_too_large = serde_json::to_string(&response)
+                        .map(|s| s.len() > MAX_SAFE_FULL_BLOB_BYTES)
+                        .unwrap_or(true);
+                    if serialized_too_large {
+                        send_resp(
+                            sender,
+                            &WsResponse {
+                                id: req_id,
+                                msg_type: "error".into(),
+                                data: None,
+                                error: Some(json!({
+                                    "code": 413,
+                                    "message": "output too large for full fetch after JSON encoding; use ranged reads instead"
+                                })),
+                            },
+                        )
+                        .await;
+                        return;
+                    }
+                    send_resp(sender, &response).await;
+                }
+                Err(e) => {
+                    send_resp(
+                        sender,
+                        &WsResponse {
+                            id: req_id,
+                            msg_type: "error".into(),
+                            data: None,
+                            error: Some(json!({"code": 500, "message": format!("{e}")})),
+                        },
+                    )
+                    .await;
+                }
+            }
+        }
+        Err(e) => {
+            send_resp(
+                sender,
+                &WsResponse {
+                    id: req_id,
+                    msg_type: "error".into(),
+                    data: None,
+                    error: Some(json!({"code": 404, "message": format!("{e}")})),
                 },
             )
             .await;
@@ -718,6 +863,9 @@ pub async fn handle_session_scoped(
         "get" => handle_sessions_get(sender, state, req_id, params).await,
         "messages" => handle_sessions_messages(sender, state, req_id, params).await,
         "tool_output" => handle_sessions_tool_output(sender, state, req_id, params).await,
+        "tool_output_by_handle" => {
+            handle_sessions_tool_output_by_handle(sender, state, req_id, params).await
+        }
         "delete" => handle_sessions_delete(sender, state, req_id, params).await,
         "update_title" => handle_sessions_update_title(sender, state, req_id, params).await,
         "set_work_dir" => handle_sessions_set_work_dir(sender, state, req_id, params).await,

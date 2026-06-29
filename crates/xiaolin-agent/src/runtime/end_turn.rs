@@ -57,6 +57,32 @@ pub(crate) async fn handle_end_turn(
     terminal_reason: &TerminalReason,
 ) -> EndTurnOutcome {
     if matches!(terminal_reason, TerminalReason::EndTurn) {
+        if should_request_missing_final_answer(&ms.query_loop, llm_output) {
+            ms.query_loop.final_answer_recovery_used = true;
+            tracing::info!(
+                agent_id = %svc.config.agent_id,
+                iterations = ms.query_loop.iteration,
+                total_tool_calls = ms.query_loop.total_tool_calls,
+                "stop hook triggered missing final answer recovery"
+            );
+            ms.messages.push(ChatMessage {
+                role: Role::User,
+                content: Some(serde_json::Value::String(
+                    "[STOP HOOK: missing final answer]\n\
+                     You have already gathered tool results, but your last response did not \
+                     contain a user-visible answer.\n\n\
+                     Do NOT call any tools. Provide the final answer now:\n\
+                     - Put findings or outcome first\n\
+                     - Cite relevant files/lines if applicable\n\
+                     - Mention verification results if applicable\n\
+                     - Keep it concise"
+                        .to_string(),
+                )),
+                ..Default::default()
+            });
+            return EndTurnOutcome::StopHookContinuation;
+        }
+
         // Goal token/time incremental accounting before stop hook evaluation.
         // Uses account_tokens/account_time to avoid double-counting across
         // continuation rounds within the same query loop.
@@ -410,4 +436,58 @@ pub(crate) async fn handle_end_turn(
         .await;
 
     EndTurnOutcome::Done(summary)
+}
+
+fn should_request_missing_final_answer(
+    query_loop: &super::query_state::QueryLoopState,
+    llm_output: &LlmStreamOutput,
+) -> bool {
+    query_loop.total_tool_calls > 0
+        && !query_loop.final_answer_recovery_used
+        && llm_output.accumulated_content.trim().is_empty()
+        && llm_output.accumulated_reasoning.trim().is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::query_state::{LoopTransition, QueryLoopState, TerminalReason};
+    use super::*;
+
+    fn llm_output(content: &str, reasoning: &str) -> LlmStreamOutput {
+        LlmStreamOutput {
+            accumulated_content: content.to_string(),
+            accumulated_reasoning: reasoning.to_string(),
+            tool_call_accum: Vec::new(),
+            last_finish_reason: Some("stop".to_string()),
+            streaming_executor: None,
+            last_submitted_tool_idx: None,
+            transition: LoopTransition::Terminal(TerminalReason::EndTurn),
+        }
+    }
+
+    #[test]
+    fn missing_final_answer_recovery_requires_prior_tool_calls() {
+        let mut query_loop = QueryLoopState::new(50);
+        let output = llm_output("", "");
+        assert!(!should_request_missing_final_answer(&query_loop, &output));
+
+        query_loop.total_tool_calls = 1;
+        assert!(should_request_missing_final_answer(&query_loop, &output));
+    }
+
+    #[test]
+    fn missing_final_answer_recovery_is_one_shot_and_skips_visible_text() {
+        let mut query_loop = QueryLoopState::new(50);
+        query_loop.total_tool_calls = 1;
+        assert!(!should_request_missing_final_answer(
+            &query_loop,
+            &llm_output("No issues found.", "")
+        ));
+
+        query_loop.final_answer_recovery_used = true;
+        assert!(!should_request_missing_final_answer(
+            &query_loop,
+            &llm_output("", "")
+        ));
+    }
 }

@@ -280,6 +280,10 @@ pub(crate) struct ProcessedOutputInfo {
     pub handle: String,
     pub tool_name: String,
     pub arguments_summary: String,
+    /// Size classification for UI rendering decisions (e.g. "large" = defer expansion).
+    pub size_class: String,
+    /// Whether the asset lifecycle makes it valid for frontend expansion.
+    pub is_expandable: bool,
 }
 
 /// Build a compact arguments summary from JSON tool arguments.
@@ -383,19 +387,22 @@ async fn process_tool_output(
             };
             match store.create_asset(input).await {
                 Ok(handle) => {
-                    // Record Phase 8.1 metrics: asset creation
-                    {
+                    // Classify size for metrics and handle info
+                    let sc_str = {
                         let sc = xiaolin_session::tool_output_store::OutputSizeClass::classify(
                             output.len(),
                             output.lines().count(),
                             output.len() / 4,
                             &xiaolin_session::tool_output_store::ProjectionSizeConfig::default(),
                         );
-                        let sc_str = match sc {
+                        match sc {
                             xiaolin_session::tool_output_store::OutputSizeClass::Small => "small",
                             xiaolin_session::tool_output_store::OutputSizeClass::Medium => "medium",
                             xiaolin_session::tool_output_store::OutputSizeClass::Large => "large",
-                        };
+                        }
+                    };
+                    // Record Phase 8.1 metrics: asset creation
+                    {
                         xiaolin_observe::record_output_asset_created(tool_name, sc_str);
                         xiaolin_observe::record_output_asset_raw_bytes(
                             tool_name,
@@ -431,6 +438,11 @@ async fn process_tool_output(
                         handle: handle.to_string(),
                         tool_name: tool_name.to_string(),
                         arguments_summary: args_summary,
+                        size_class: sc_str.to_string(),
+                        // Always true here: get_asset above already validated lifecycle
+                        // is active/created. Future conditions (e.g. expired handles)
+                        // would set this to false.
+                        is_expandable: true,
                     };
                     tracing::info!(
                         handle = handle.as_str(),

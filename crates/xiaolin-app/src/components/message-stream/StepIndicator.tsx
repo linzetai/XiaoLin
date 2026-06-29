@@ -33,6 +33,12 @@ export interface ToolCall {
   messageId?: number;
   /** Session id — needed to call `getToolOutput`. */
   sessionId?: string;
+  /** Output asset handle for handle-based lazy-load (Phase 10). */
+  outputHandle?: string;
+  /** Size class: "small" | "medium" | "large". */
+  outputSizeClass?: string;
+  /** Whether expansion through the handle API is available. */
+  outputIsExpandable?: boolean;
 }
 
 /** Threshold above which we avoid eager regex/JSON.parse on the result string. */
@@ -466,11 +472,13 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
   const [expanded, setExpanded] = useState(false);
   const [fullOutput, setFullOutput] = useState<string | null>(null);
   const [loadingFull, setLoadingFull] = useState(false);
+  const [fullOutputError, setFullOutputError] = useState<string | null>(null);
   const mcpMeta = getMcpMeta(tool.name);
   const meta = mcpMeta ?? toolMeta[tool.name] ?? DEFAULT_META;
   const label = meta.label ?? tool.name;
   const keyInfo = useMemo(() => extractKeyInfo(tool), [tool.args]);
-  const hasDetails = !!(tool.args || tool.result);
+  const canLazyLoadOutput = !!(tool.outputHandle && tool.outputIsExpandable && tool.sessionId);
+  const hasDetails = !!(tool.args || tool.result || canLazyLoadOutput);
   const category = getToolCategory(tool.name);
   const isShell = category === "shell";
 
@@ -513,24 +521,32 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
   const canExpand = hasDetails && !hasSpecialResult;
 
   // Lazy-load the full output when the user expands a truncated tool call.
+  // Phase 10: prefer handle-based API for assetized outputs.
   const handleExpand = useCallback(() => {
     const next = !expanded;
     setExpanded(next);
     if (!next) return;
-    if (!tool.truncated || fullOutput !== null || loadingFull) return;
-    if (!tool.sessionId || tool.messageId == null) return;
+    if (fullOutput !== null || loadingFull) return;
+
+    setFullOutputError(null);
     setLoadingFull(true);
-    transport
-      .getToolOutput(tool.sessionId, tool.messageId, tool.id)
-      .then((resp) => {
-        const full = resp.displayOutput ?? resp.output ?? null;
-        setFullOutput(full);
-      })
+
+    const fetchPromise = (tool.outputHandle && tool.outputIsExpandable && tool.sessionId)
+      ? transport.getToolOutputByHandle(tool.sessionId, tool.outputHandle)
+          .then(resp => resp.output ?? null)
+      : (tool.truncated && tool.sessionId && tool.messageId != null)
+        ? transport.getToolOutput(tool.sessionId, tool.messageId, tool.id)
+            .then(resp => resp.displayOutput ?? resp.output ?? null)
+        : Promise.resolve(null);
+
+    fetchPromise
+      .then((full) => { if (full !== null) setFullOutput(full); })
       .catch(() => {
-        // Leave the truncated preview in place on error.
+        setFullOutputError(t("outputLoadFailed"));
+        /* leave truncated preview */
       })
       .finally(() => setLoadingFull(false));
-  }, [expanded, fullOutput, loadingFull, tool.id, tool.messageId, tool.sessionId, tool.truncated]);
+  }, [expanded, fullOutput, loadingFull, t, tool.id, tool.messageId, tool.sessionId, tool.truncated, tool.outputHandle, tool.outputIsExpandable]);
 
   const displayResult = fullOutput ?? tool.result;
 
@@ -702,9 +718,14 @@ export const StepIndicator = memo(function StepIndicator({ tool, compact: _compa
                   </div>
                 )}
                 {displayResult && <OutputBlock content={displayResult} error={isError} />}
-                {tool.truncated && loadingFull && (
+                {(tool.truncated || canLazyLoadOutput) && loadingFull && (
                   <div className="mt-1 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
-                    Loading full output…
+                    {t("loadingFullOutput")}
+                  </div>
+                )}
+                {fullOutputError && (
+                  <div className="mt-1 text-[11px]" style={{ color: "var(--red)" }}>
+                    {fullOutputError}
                   </div>
                 )}
               </div>

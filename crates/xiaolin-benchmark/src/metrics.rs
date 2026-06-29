@@ -255,6 +255,9 @@ mod tests {
             display_output: None,
             success: true,
             metadata: None,
+            output_handle: None,
+            output_size_class: None,
+            output_is_expandable: None,
         });
         collector.process_event(&AgentEvent::ToolResult {
             turn_id: make_turn_id(),
@@ -264,6 +267,9 @@ mod tests {
             display_output: None,
             success: false,
             metadata: None,
+            output_handle: None,
+            output_size_class: None,
+            output_is_expandable: None,
         });
         let result = collector.finalize();
         assert_eq!(result.metrics.tool_calls_total, 2);
@@ -327,6 +333,9 @@ mod tests {
             display_output: None,
             success: true,
             metadata: None,
+            output_handle: None,
+            output_size_class: None,
+            output_is_expandable: None,
         });
 
         collector.process_event(&AgentEvent::IterationBoundary {
@@ -341,6 +350,9 @@ mod tests {
             display_output: None,
             success: true,
             metadata: None,
+            output_handle: None,
+            output_size_class: None,
+            output_is_expandable: None,
         });
 
         collector.process_event(&AgentEvent::TurnEnd {

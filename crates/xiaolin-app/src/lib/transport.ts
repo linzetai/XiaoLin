@@ -273,6 +273,9 @@ export interface SessionMessage {
     metadata?: Record<string, unknown>;
     truncated?: boolean;
     full_length?: number;
+    output_handle?: string;
+    output_size_class?: string;
+    output_is_expandable?: boolean;
   }> | null;
   createdAt: string;
   reasoningContent?: string | null;
@@ -313,6 +316,17 @@ export async function getToolOutput(
     messageId,
     callId,
   })) as { data?: { output?: string; displayOutput?: string } };
+  return resp?.data ?? {};
+}
+
+export async function getToolOutputByHandle(
+  sessionId: string,
+  handle: string,
+): Promise<{ output?: string | null }> {
+  const resp = (await wsClient.send("sessions.tool_output_by_handle", {
+    sessionId,
+    handle,
+  })) as { data?: { output?: string | null } };
   return resp?.data ?? {};
 }
 

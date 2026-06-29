@@ -468,7 +468,7 @@ export function useMessageStreamChat({
               .filter((s) => s.type === "tool" && s.toolCall)
               .map((s) => {
                 const tc = s.toolCall!;
-                return { id: tc.id, name: tc.name, status: tc.status, args: tc.args, result: tc.result, duration: tc.duration, metadata: tc.metadata };
+                return { id: tc.id, name: tc.name, status: tc.status, args: tc.args, result: tc.result, duration: tc.duration, metadata: tc.metadata, outputHandle: tc.outputHandle, outputSizeClass: tc.outputSizeClass, outputIsExpandable: tc.outputIsExpandable };
               });
 
             if (currentSegments.length > 0) {
@@ -477,7 +477,7 @@ export function useMessageStreamChat({
                 type: s.type,
                 content: s.content,
                 iteration: s.iteration,
-                toolCall: s.toolCall ? { id: s.toolCall.id, name: s.toolCall.name, status: s.toolCall.status, args: s.toolCall.args, result: s.toolCall.result, duration: s.toolCall.duration, metadata: s.toolCall.metadata } : undefined,
+                toolCall: s.toolCall ? { id: s.toolCall.id, name: s.toolCall.name, status: s.toolCall.status, args: s.toolCall.args, result: s.toolCall.result, duration: s.toolCall.duration, metadata: s.toolCall.metadata, outputHandle: s.toolCall.outputHandle, outputSizeClass: s.toolCall.outputSizeClass, outputIsExpandable: s.toolCall.outputIsExpandable } : undefined,
               })));
             }
 
@@ -605,7 +605,7 @@ export function useMessageStreamChat({
                 .filter((s) => s.type === "tool" && s.toolCall)
                 .map((s) => {
                   const tc = s.toolCall!;
-                  return { id: tc.id, name: tc.name, status: tc.status, args: tc.args, result: tc.result, duration: tc.duration, metadata: tc.metadata };
+                  return { id: tc.id, name: tc.name, status: tc.status, args: tc.args, result: tc.result, duration: tc.duration, metadata: tc.metadata, outputHandle: tc.outputHandle, outputSizeClass: tc.outputSizeClass, outputIsExpandable: tc.outputIsExpandable };
                 });
               streamAccRef.current = "";
               segmentsRef.current = [];
@@ -715,6 +715,9 @@ export function useMessageStreamChat({
                 seg.toolCall.result = output;
                 seg.toolCall.duration = seg.toolCall.startTime ? Date.now() - seg.toolCall.startTime : undefined;
                 seg.toolCall.metadata = meta;
+                seg.toolCall.outputHandle = (d.output_handle as string) ?? undefined;
+                seg.toolCall.outputSizeClass = (d.output_size_class as string) ?? undefined;
+                seg.toolCall.outputIsExpandable = (d.output_is_expandable as boolean) ?? undefined;
               }
               flushSegments();
             } else {
@@ -722,7 +725,7 @@ export function useMessageStreamChat({
               if (ds) {
                 ds.toolCalls = ds.toolCalls.map((t) =>
                   t.id === callId
-                    ? { ...t, status: d.success ? "success" : "error", result: output, duration: t.startTime ? Date.now() - t.startTime : undefined, metadata: meta }
+                    ? { ...t, status: d.success ? "success" : "error", result: output, duration: t.startTime ? Date.now() - t.startTime : undefined, metadata: meta, outputHandle: (d.output_handle as string) ?? t.outputHandle, outputSizeClass: (d.output_size_class as string) ?? t.outputSizeClass, outputIsExpandable: (d.output_is_expandable as boolean) ?? t.outputIsExpandable }
                     : t,
                 );
               }
@@ -807,6 +810,10 @@ export function useMessageStreamChat({
           case "context_usage_update": {
             const d = event.data;
             if (d?.used_tokens != null && d?.limit_tokens != null && isActive()) {
+              const source = typeof d.source === "string" ? d.source : "legacy";
+              if (source === "post_tool") {
+                break;
+              }
               const resolvedChatId = capturedChatId;
               updateChatUsage(resolvedChatId, {
                 promptTokens: 0,
@@ -922,6 +929,9 @@ export function useMessageStreamChat({
                   result: s.toolCall!.result,
                   duration: s.toolCall!.duration,
                   metadata: s.toolCall!.metadata,
+                  outputHandle: s.toolCall!.outputHandle,
+                  outputSizeClass: s.toolCall!.outputSizeClass,
+                  outputIsExpandable: s.toolCall!.outputIsExpandable,
                 }));
                 const textSegs = segmentsRef.current.filter((s) => s.type === "text" && s.content);
                 const partialContent = textSegs.map((s) => s.content).join("");
@@ -1186,7 +1196,7 @@ export function useMessageStreamChat({
       .filter((s) => s.type === "tool" && s.toolCall)
       .map((s) => {
         const tc = s.toolCall!;
-        return { id: tc.id, name: tc.name, status: tc.status, args: tc.args, result: tc.result, duration: tc.duration, metadata: tc.metadata };
+        return { id: tc.id, name: tc.name, status: tc.status, args: tc.args, result: tc.result, duration: tc.duration, metadata: tc.metadata, outputHandle: tc.outputHandle, outputSizeClass: tc.outputSizeClass, outputIsExpandable: tc.outputIsExpandable };
       });
     cancelScheduledFlush();
     streamAccRef.current = "";

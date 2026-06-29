@@ -180,6 +180,8 @@
   "changePreview": "Change preview",
   "expandAllLines": "Show all ({{count}} lines)",
   "params": "Parameters",
+  "loadingFullOutput": "Loading full output...",
+  "outputLoadFailed": "Full output is too large or unavailable. Try a narrower command or range.",
   "stepGroup_readFiles": "Read {{count}} file(s)",
   "stepGroup_searchedLocations": "Searched {{count}} location(s)",
   "stepGroup_executedCommands": "Ran {{count}} command(s)",
@@ -356,5 +358,6 @@
   "tokenBudgetExhausted": "Token budget exhausted (~{{tokens}} tokens generated). You can add more budget or end the task.",
   "browserQuoteSource": "Source: {{url}}",
   "viewFile": "View file",
-  "attachedImage": "Attached image"
+  "attachedImage": "Attached image",
+  "outputIsExpandable": "Click to expand full output"
 }

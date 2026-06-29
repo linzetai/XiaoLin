@@ -63,6 +63,9 @@ async fn replay_executor_with_fixture() {
             display_output: None,
             success: true,
             metadata: None,
+            output_handle: None,
+            output_size_class: None,
+            output_is_expandable: None,
         },
         AgentEvent::TurnEnd {
             turn_id: TurnId::new("t1"),

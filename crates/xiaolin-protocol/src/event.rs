@@ -392,6 +392,15 @@ pub enum AgentEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown> | null"))]
         metadata: Option<serde_json::Value>,
+        /// Output asset handle (e.g. "out_<sha256>_<uuid>") when large output was assetized.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        output_handle: Option<String>,
+        /// Size classification: "small" | "medium" | "large".
+        #[serde(skip_serializing_if = "Option::is_none")]
+        output_size_class: Option<String>,
+        /// Whether asset-scoped expansion through the handle API is available.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        output_is_expandable: Option<bool>,
     },
     ToolProgress {
         turn_id: TurnId,
@@ -445,6 +454,10 @@ pub enum AgentEvent {
         limit_tokens: u32,
         compressed: bool,
         tokens_saved: u32,
+        /// Measurement point that produced this estimate, e.g. "pre_query" or
+        /// "post_tool". Omitted by older producers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
     },
     CompactBoundary {
         turn_id: TurnId,
@@ -795,6 +808,9 @@ mod tests {
             display_output: None,
             success: true,
             metadata: None,
+            output_handle: None,
+            output_size_class: None,
+            output_is_expandable: None,
         };
         let json = serde_json::to_string(&evt).unwrap();
         let back: AgentEvent = serde_json::from_str(&json).unwrap();

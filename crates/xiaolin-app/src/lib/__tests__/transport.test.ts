@@ -425,4 +425,34 @@ describe("transport layer (browser mode)", () => {
       expect(transport.isWsConnected()).toBe(false);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // getToolOutputByHandle (Phase 10)
+  // ═══════════════════════════════════════════════════════════════════
+
+  describe("getToolOutputByHandle", () => {
+    it("calls wsClient.send with sessions.tool_output_by_handle", async () => {
+      mockSend.mockResolvedValueOnce({
+        data: { output: "full tool output content" },
+      });
+      const result = await transport.getToolOutputByHandle("sess-1", "out_abc123_xyz");
+      expect(mockSend).toHaveBeenCalledWith("sessions.tool_output_by_handle", {
+        sessionId: "sess-1",
+        handle: "out_abc123_xyz",
+      });
+      expect(result.output).toBe("full tool output content");
+    });
+
+    it("returns empty object when data is missing", async () => {
+      mockSend.mockResolvedValueOnce({});
+      const result = await transport.getToolOutputByHandle("sess-1", "out_missing");
+      expect(result).toEqual({});
+    });
+
+    it("returns empty object when data.output is null", async () => {
+      mockSend.mockResolvedValueOnce({ data: { output: null } });
+      const result = await transport.getToolOutputByHandle("sess-1", "out_null");
+      expect(result.output).toBeNull();
+    });
+  });
 });

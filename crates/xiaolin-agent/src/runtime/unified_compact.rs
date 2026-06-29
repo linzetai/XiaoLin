@@ -303,7 +303,11 @@ pub(crate) async fn unified_pre_query_compact(
                 0.5
             };
             if occupancy < 0.50 {
-                8000
+                // Low-pressure path: avoid rewriting recent tool outputs just
+                // because they are moderately large. Hidden rewrites make the
+                // live context graph look non-monotonic and can disturb prompt
+                // caching even though the context window has plenty of room.
+                50_000
             } else {
                 // Gap C3: previously <80% → 4000 and ≥80% → 2000. The 2000-
                 // char floor (~500 tokens) was too aggressive — at 128K

@@ -1,7 +1,9 @@
 use xiaolin_core::types::{ChatMessage, Role};
-use xiaolin_protocol::{TurnQualityDiagnosisCode, TurnQualitySeverity, TurnSummary};
+use xiaolin_protocol::{
+    DiagnosisEvidence, TurnQualityDiagnosisCode, TurnQualitySeverity, TurnSummary,
+};
 
-use super::agent_step::AgentStep;
+use super::agent_step::{AgentStep, TurnEndReason};
 use super::end_turn::{self, EndTurnOutcome};
 use super::goal_prompts;
 use super::iteration_check::{self, PreCheckOutcome};
@@ -56,12 +58,13 @@ pub(crate) async fn run_turn_loop(
                     Some((TurnQualityDiagnosisCode::Aborted, TurnQualitySeverity::Warn)),
                 )
                 .await;
-                return Ok(make_turn_summary(
-                    &svc.turn_id,
-                    &ms.query_loop,
-                    svc.stream_start,
-                    svc.context_window,
-                ));
+                return Ok(emit_terminal_turn_end(
+                    ms,
+                    svc,
+                    TurnEndReason::Cancelled,
+                    Some("aborted"),
+                )
+                .await);
             }
         }
 
@@ -86,6 +89,13 @@ pub(crate) async fn run_turn_loop(
                     Some((TurnQualityDiagnosisCode::Error, TurnQualitySeverity::Error)),
                 )
                 .await;
+                let _ = emit_terminal_turn_end(
+                    ms,
+                    svc,
+                    TurnEndReason::Error(e.to_string()),
+                    Some("error"),
+                )
+                .await;
                 return Err(e);
             }
         };
@@ -101,6 +111,13 @@ pub(crate) async fn run_turn_loop(
                     ms,
                     svc,
                     Some((TurnQualityDiagnosisCode::Error, TurnQualitySeverity::Error)),
+                )
+                .await;
+                let _ = emit_terminal_turn_end(
+                    ms,
+                    svc,
+                    TurnEndReason::Error(e.to_string()),
+                    Some("error"),
                 )
                 .await;
                 return Err(e);
@@ -162,6 +179,46 @@ pub(crate) async fn run_turn_loop(
             }
         }
     }
+}
+
+async fn emit_terminal_turn_end(
+    ms: &TurnMutableState,
+    svc: &TurnServices,
+    reason: TurnEndReason,
+    quality_diagnosis_code: Option<&str>,
+) -> TurnSummary {
+    let summary = make_turn_summary(
+        &svc.turn_id,
+        &ms.query_loop,
+        svc.stream_start,
+        svc.context_window,
+    );
+    let (repeated_warn, repeated_force) = ms.query_loop.repetition_stats();
+    let evidence = DiagnosisEvidence {
+        iterations: Some(ms.query_loop.iteration),
+        tool_calls: Some(ms.query_loop.total_tool_calls),
+        repeated_force_stops: Some(repeated_force),
+        repeated_warns: Some(repeated_warn),
+        no_progress_count: None,
+        plan_path: None,
+        plan_exists: None,
+    };
+
+    let _ = send_step(
+        &svc.step_tx,
+        AgentStep::TurnEnd {
+            turn_id: svc.turn_id.clone(),
+            reason,
+            summary: summary.clone(),
+            session_id: svc.session_id.clone(),
+            quality_diagnosis_code: quality_diagnosis_code.map(str::to_string),
+            evidence: Some(evidence),
+        },
+        false,
+    )
+    .await;
+
+    summary
 }
 
 async fn persist_runtime_quality_summary(

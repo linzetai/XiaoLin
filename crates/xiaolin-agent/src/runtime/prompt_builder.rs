@@ -112,27 +112,26 @@ pub fn build_subagent_prompt_block(ctx: &SubAgentPromptContext<'_>) -> Option<St
 
     block.push_str(
         "\
-⚡ DELEGATION IS YOUR SUPERPOWER — use it aggressively for parallelism:
-- Spawn multiple sub-agents in ONE response for maximum parallelism
-- You do NOT need to wait manually — the system automatically notifies you when sub-agents complete
-- After spawning, you can continue reasoning or produce partial output; results arrive automatically
+Use sub-agents selectively when they reduce wall-clock time without bloating context.
+Default to doing simple and moderate tasks yourself with direct parallel tool calls.
 
-WHEN TO DELEGATE (strongly prefer delegation):
-- 2+ independent sub-problems → spawn them ALL in parallel
-- Research, exploration, or information gathering → delegate immediately
-- A subtask needs focused attention in a separate context
-- File reading, code analysis, or search tasks → perfect for sub-agents
-- Any task that would take multiple sequential tool calls → parallelize via sub-agents
+WHEN TO DELEGATE:
+- Large, clearly separable workstreams that would each take substantial focused analysis
+- Independent investigations whose results can be summarized and merged safely
+- Long-running research where parallelism materially reduces wall-clock duration
+- Code/write work only when the subtask has a narrow ownership boundary and success criteria
 
-WHEN NOT TO DELEGATE (only these cases):
-- Trivial single-tool operations (one quick tool call)
-- Tasks requiring your current conversation context that cannot be summarized
-- Sequential steps where EACH step depends on the PREVIOUS result with no parallelism
+WHEN NOT TO DELEGATE:
+- Simple user requests, quick reviews, or tasks likely to need only a few direct tool calls
+- Reading/searching a handful of files; batch those tools yourself instead
+- When you already have enough evidence to answer the user
+- When the subtask depends on live conversation nuance that is hard to summarize
+- Sequential steps where each step depends on the previous result
 
 EXECUTION MODEL (Supervised Reactive Loop):
 - You spawn sub-agents → system automatically waits for completions
 - When ANY sub-agent completes, you receive a structured notification with results
-- You then decide: spawn more tasks, reason about findings, or produce final response
+- You then decide: integrate findings into the final response or continue locally
 - Your turn does NOT end until all sub-agents complete — no need to manage this yourself
 
 CONCURRENCY:

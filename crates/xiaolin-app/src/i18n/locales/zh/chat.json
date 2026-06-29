@@ -180,6 +180,8 @@
   "changePreview": "变更预览",
   "expandAllLines": "展开全部 ({{count}} 行)",
   "params": "参数",
+  "loadingFullOutput": "正在加载完整输出...",
+  "outputLoadFailed": "完整输出过大或不可用。请尝试更窄的命令或范围。",
   "stepGroup_readFiles": "读取了 {{count}} 个文件",
   "stepGroup_searchedLocations": "搜索了 {{count}} 个位置",
   "stepGroup_executedCommands": "执行了 {{count}} 条命令",
@@ -355,5 +357,6 @@
   "tokenBudgetExhausted": "Token 预算已用尽（已生成 ~{{tokens}} tokens）。你可以继续追加预算或结束本次任务。",
   "browserQuoteSource": "来源: {{url}}",
   "viewFile": "查看文件",
-  "attachedImage": "附件图片"
+  "attachedImage": "附件图片",
+  "outputIsExpandable": "点击展开完整输出"
 }

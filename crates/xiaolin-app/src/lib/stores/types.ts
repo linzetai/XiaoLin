@@ -26,6 +26,12 @@ export interface ChatMessageToolCall {
   messageId?: number;
   /** Session id — needed to call `getToolOutput`. */
   sessionId?: string;
+  /** Output asset handle for handle-based lazy-load (Phase 10). */
+  outputHandle?: string;
+  /** Size class: "small" | "medium" | "large". */
+  outputSizeClass?: string;
+  /** Whether expansion through the handle API is available. */
+  outputIsExpandable?: boolean;
 }
 
 export interface ChatMessageImage {
@@ -225,6 +231,9 @@ export interface BackendMessage {
     metadata?: Record<string, unknown>;
     truncated?: boolean;
     full_length?: number;
+    output_handle?: string;
+    output_size_class?: string;
+    output_is_expandable?: boolean;
   }> | null;
   createdAt: string;
   reasoningContent?: string | null;
