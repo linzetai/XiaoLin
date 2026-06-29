@@ -121,10 +121,13 @@ type TurnDisplayNode =
   | ToolGroupNode
   | ApprovalNode
   | IterationBoundaryNode
+  | TurnStatusNode
   | SystemNoticeNode;
 ```
 
 Every node has a stable `nodeId`, `turnId`, `status`, `createdAtMs`, `updatedAtMs`, and enough metadata to render in both live and replay states.
+
+`TurnStatusNode` is the visible terminal state for non-successful or diagnostically important turn endings. It carries the turn end reason, optional terminal diagnosis code/severity/message/evidence, cancellation or error metadata when available, and source event trace metadata. A partial assistant text node MAY remain visible before the status node, but the transcript must not make a tool-loop, cancellation, or runtime failure look like a normally completed assistant response.
 
 ### D7. Tool Step Display
 
@@ -151,17 +154,39 @@ When all small-output thresholds are satisfied, the display node SHOULD include 
 
 The detail reference reuses the session-scoped `ToolOutputHandle` and `ToolOutputAsset` system introduced by the `tool-output-assets` change (already in flight). The timeline UI does not define its own handle scheme or output backend. The UI detail endpoint is a read-only, UI-authorized view over those assets; the existing agent-facing recall tools (`output_read`, `output_search`, `output_tail`, `output_summary`) remain the model-context path and are unchanged here. The display-side small-output policy below is independent of the model-context projection policy: display decides what is inline in the transcript, projection decides what the model sees, and the two policies are deliberately separate.
 
+The UI detail endpoint must never return an unbounded full blob by default. It returns bounded sections, ranges, tails, summaries, or structured slices with serialized response-size limits and explicit continuation metadata when more content exists.
+
 ### D8. Text Streaming Display
 
 Assistant text streaming coalesces frequent deltas into stable text nodes. The UI should update at frame or short time intervals, preserve markdown/code block correctness, and avoid layout shift caused by rebuilding whole messages.
 
 Final replay should show the same assistant text content and node boundaries as the completed live turn, except that typing animation does not need to be replayed.
 
-### D9. Reconnect And Detached Stream Recovery
+Text event payloads must identify the append target (`node_id` or equivalent) and carry the exact text delta or snapshot content required for replay. Buffered text must be flushed before any subsequent visible non-text event is appended, including tool start/result, reasoning, approval, iteration boundary, terminal status, and turn end. Empty text or reasoning deltas are ignored unless they intentionally update metadata.
+
+### D9. Timeline Append And Broadcast Ordering
+
+Timeline WebSocket delivery must be produced by a single append-and-broadcast path. A UI-visible timeline event is assigned its durable session `seq` and persisted successfully before it is broadcast to clients. If persistence fails, the event is not broadcast as canonical timeline state; the runtime may emit a separate non-timeline error notice. This keeps reconnect `after_seq` recovery unambiguous.
+
+### D10. Reconnect And Detached Stream Recovery
 
 The client records the last seen `seq` per session. On reconnect it requests all events after that sequence and feeds them into the same reducer. If the gap is too large or the client state is suspect, it reloads materialized display nodes from the backend.
 
-### D10. No Legacy Migration
+### D11. Event Coverage Boundaries
+
+The first implementation must classify every currently UI-visible live event as one of:
+
+- represented directly by a timeline event and display node;
+- represented as timeline metadata on an existing node;
+- deliberately excluded from the transcript because it belongs to non-transcript UI state.
+
+This includes assistant text, reasoning, tools, approvals, iteration boundaries, compact/compaction notices, terminal diagnostics, context warnings, brief messages, suggestions, mode changes, memory notices, and sub-agent activity. Events excluded from the transcript must not rely on legacy message reconstruction for replay.
+
+### D12. Model Context Isolation
+
+Timeline payloads are UI-visible replay data, not model-visible context. Existing message/history/context projection paths may continue to feed the LLM, but they must not automatically include timeline payloads, large output detail payloads, or display-only metadata unless a separate context-projection rule explicitly chooses to do so.
+
+### D13. No Legacy Migration
 
 Old sessions created before this change are not migrated. Acceptable behaviors are:
 

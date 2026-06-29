@@ -11,6 +11,11 @@ The backend SHALL persist UI timeline events in an append-only store with sessio
 - **WHEN** a timeline event is stored
 - **THEN** it SHALL include a schema version so future materializers can handle payload evolution explicitly
 
+#### Scenario: Timeline store is distinguishable from agent event log
+- **WHEN** the implementation chooses its storage schema
+- **THEN** the UI timeline SHALL be accessed through typed timeline APIs with durable `seq`, event id, schema version, and payload contracts
+- **AND** runtime/debug agent events SHALL NOT be exposed as canonical UI timeline events merely because they are stored in `event_log`
+
 ### Requirement: Timeline query API
 The backend SHALL expose an API for loading timeline events by session and sequence range.
 
@@ -45,9 +50,18 @@ The backend SHALL expose a UI-authorized, read-only detail API that serves bound
 - **THEN** the display node MAY include a bounded summary and SHALL reference an existing `ToolOutputHandle` when expanded output is available
 - **AND** the detail reference SHALL be resolvable by the UI detail API under the same session-scoped ownership rules as the agent-facing recall tools
 
+#### Scenario: Detail response is bounded
+- **WHEN** the UI requests details for a large output handle
+- **THEN** the API SHALL return bounded sections, ranges, tails, summaries, or structured slices rather than an unbounded full output blob
+- **AND** the serialized response SHALL respect a configured size limit and include continuation or truncation metadata when more content exists
+
+#### Scenario: Detail handle is unavailable
+- **WHEN** the referenced output asset is missing, expired, unauthorized, or too large for the requested view
+- **THEN** the API SHALL return a typed error state that the tool detail UI can render without breaking transcript replay
+
 ### Requirement: Timeline storage tests
 Timeline persistence SHALL have tests for ordering, idempotency, pagination, reconnect recovery, and display-node materialization.
 
 #### Scenario: Storage test suite runs
 - **WHEN** timeline persistence code changes
-- **THEN** tests SHALL verify sequence ordering, duplicate event handling, after-sequence loading, empty ranges, and materialized display output
+- **THEN** tests SHALL verify sequence ordering, duplicate event handling, append-before-broadcast contracts, after-sequence loading, empty ranges, bounded detail responses, and materialized display output

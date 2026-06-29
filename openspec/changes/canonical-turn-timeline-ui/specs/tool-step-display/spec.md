@@ -47,6 +47,11 @@ Large or structured tool output SHALL be summarized in the transcript and fetche
 - **THEN** the UI SHALL fetch details through an authorized backend API
 - **AND** it SHALL render loading, success, empty, expired, and error states
 
+#### Scenario: Detail expansion is paged or sectional
+- **WHEN** expanded output exceeds the detail response size limit
+- **THEN** the UI SHALL render the returned bounded section and provide available continuation, range, tail, summary, or search affordances
+- **AND** it SHALL NOT require loading the entire output blob to keep the transcript usable
+
 ### Requirement: Tool grouping
 When the product enables tool grouping, consecutive low-value or repetitive tool steps SHALL be grouped into a `ToolGroupNode` while preserving individual details.
 

@@ -35,7 +35,6 @@ pub use runtime_quality::{TurnQualityDiagnosisCode, TurnQualitySeverity, TurnQua
 pub use search::{
     SearchFilters, SearchIndexStatusResponse, SearchQueryRequest, SearchQueryResponse, SearchResult,
 };
-pub use tool_spec::{FunctionDefinition, ToolDefinition, ToolKind, ToolParameterSchema};
 pub use timeline::{
     is_small_output, ApprovalNode, ApprovalRequestedPayload, ApprovalResolvedPayload,
     AssistantMessageFinalizedPayload, AssistantTextDeltaPayload, AssistantTextNode,
@@ -49,4 +48,5 @@ pub use timeline::{
     UserMessageCreatedPayload, UserMessageNode, SMALL_OUTPUT_MAX_BYTES, SMALL_OUTPUT_MAX_LINES,
     SMALL_OUTPUT_MAX_TOKENS, TIMELINE_SCHEMA_VERSION,
 };
+pub use tool_spec::{FunctionDefinition, ToolDefinition, ToolKind, ToolParameterSchema};
 pub use usage::TokenUsage;

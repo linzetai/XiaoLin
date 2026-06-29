@@ -27,7 +27,7 @@ use xiaolin_evolution::{
 };
 use xiaolin_memory::{EmbeddingProvider, EpisodicMemory, SemanticMemory};
 use xiaolin_model_router::BudgetTracker;
-use xiaolin_session::{EventLog, SearchIndex, SessionStore};
+use xiaolin_session::{EventLog, SearchIndex, SessionStore, TimelineStore};
 
 use crate::memory_scope::memory_tool_agent_suffix;
 use crate::scoped_tool::RenamedTool;
@@ -177,6 +177,7 @@ pub struct RuntimeState {
 pub struct StorageState {
     pub session_store: Arc<SessionStore>,
     pub event_log: Arc<EventLog>,
+    pub timeline_store: Arc<TimelineStore>,
     pub cron_store: Arc<CronJobStore>,
     pub cron_wake: Arc<tokio::sync::Notify>,
     pub notification_store: Arc<crate::notification_store::NotificationStore>,
@@ -3455,6 +3456,9 @@ impl AppState {
             });
         let session_manager = Arc::new(xiaolin_session_actor::SessionManager::new(executor));
 
+        let timeline_store = Arc::new(xiaolin_session::TimelineStore::new(session_store.pool()));
+        timeline_store.ensure_table().await?;
+
         Ok(Self {
             cfg: ConfigState {
                 config: Arc::new(config),
@@ -3510,6 +3514,7 @@ impl AppState {
                     xiaolin_session::SqliteArtifactStore::open(session_store.pool()).await?,
                 ),
                 search_index,
+                timeline_store,
             },
             mem: MemoryState {
                 agent_episodic: Arc::new(test_ep_map),

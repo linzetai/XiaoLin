@@ -17,16 +17,16 @@
 
 ## 3. Runtime And Gateway Integration
 
-- [ ] 3.1 Emit timeline events for user message creation, turn start/end, assistant text, reasoning, tool start/progress/result, approvals, iteration boundaries, compact boundaries, terminal diagnostics, and system notices.
-- [ ] 3.2 Classify every currently UI-visible runtime event (including context warnings, brief messages, suggestions, mode changes, memory notices, and sub-agent activity) as a timeline event, node metadata, or explicitly non-transcript UI state.
-- [ ] 3.3 Implement a single append-and-broadcast pipeline that assigns durable `seq`, persists the event, and only then broadcasts the canonical timeline event over WebSocket.
-- [ ] 3.4 Implement assistant text/reasoning coalescing with explicit target identity and deterministic flush points before every visible non-text event and terminal turn event.
-- [ ] 3.5 Update WebSocket chat routes to stream persisted timeline events with the same event id and sequence returned by replay APIs.
-- [ ] 3.6 Add timeline query endpoints and display-node loading endpoints.
-- [ ] 3.7 Add a UI-authorized, read-only tool output detail endpoint that serves bounded content/detail sections for a `ToolOutputHandle` over the existing tool output asset store from `tool-output-assets` (with session-scoped ownership validation); do not introduce a parallel output backend or handle scheme.
-- [ ] 3.8 Ensure the tool output detail endpoint never returns an unbounded full blob by default; support configured response-size limits, continuation/truncation metadata, and typed unavailable/expired/unauthorized error states.
-- [ ] 3.9 Stop using `history_compat` and legacy message reconstruction for UI session replay.
-- [ ] 3.10 Keep legacy message/history storage only where still needed for model context or backend internals, with comments and tests documenting that it is not a UI source of truth and that timeline payloads are not automatically injected into model context.
+- [x] 3.1 Emit timeline events for user message creation, turn start/end, assistant text, reasoning, tool start/progress/result, approvals, iteration boundaries, compact boundaries, terminal diagnostics, and system notices.
+- [x] 3.2 Classify every currently UI-visible runtime event (including context warnings, brief messages, suggestions, mode changes, memory notices, and sub-agent activity) as a timeline event, node metadata, or explicitly non-transcript UI state.
+- [x] 3.3 Implement a single append-and-broadcast pipeline that assigns durable `seq`, persists the event, and only then broadcasts the canonical timeline event over WebSocket.
+- [x] 3.4 Implement assistant text/reasoning coalescing with explicit target identity and deterministic flush points before every visible non-text event and terminal turn event.
+- [x] 3.5 Update WebSocket chat routes to stream persisted timeline events with the same event id and sequence returned by replay APIs.
+- [x] 3.6 Add timeline query endpoints and display-node loading endpoints.
+- [x] 3.7 Add a UI-authorized, read-only tool output detail endpoint that serves bounded content/detail sections for a `ToolOutputHandle` over the existing tool output asset store from `tool-output-assets` (with session-scoped ownership validation); do not introduce a parallel output backend or handle scheme.
+- [x] 3.8 Ensure the tool output detail endpoint never returns an unbounded full blob by default; support configured response-size limits, continuation/truncation metadata, and typed unavailable/expired/unauthorized error states.
+- [x] 3.9 Stop using `history_compat` and legacy message reconstruction for UI session replay.
+- [x] 3.10 Keep legacy message/history storage only where still needed for model context or backend internals, with comments and tests documenting that it is not a UI source of truth and that timeline payloads are not automatically injected into model context.
 
 ## 4. Frontend Timeline Store
 

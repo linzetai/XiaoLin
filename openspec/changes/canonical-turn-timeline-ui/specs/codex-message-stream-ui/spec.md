@@ -21,6 +21,16 @@ Assistant text streaming SHALL update incrementally without rebuilding unrelated
 - **THEN** the UI SHALL render an acceptable in-progress view
 - **AND** the finalized replay SHALL render valid markdown equivalent to the completed live view
 
+#### Scenario: Text node target is stable
+- **WHEN** multiple text deltas append to the same assistant text node
+- **THEN** the reducer SHALL use explicit target identity or deterministic open-node state rather than rebuilding the entire assistant message
+- **AND** replay SHALL produce the same node content and relative ordering after reload
+
+#### Scenario: Text resumes after a tool
+- **WHEN** assistant text resumes after a tool step, approval, reasoning block, or iteration boundary
+- **THEN** the reducer SHALL append the resumed text to the correct assistant text node according to timeline event metadata
+- **AND** it SHALL NOT merge across visible timeline boundaries unless the event explicitly targets the same node
+
 ### Requirement: Reasoning display
 Reasoning SHALL be represented as timeline display nodes and rendered consistently in live and replay.
 
@@ -43,6 +53,18 @@ Iteration boundaries SHALL be display nodes in the canonical timeline.
 #### Scenario: Boundary appears in replay
 - **WHEN** the same session is replayed
 - **THEN** the boundary SHALL appear at the same relative position with equivalent label and metadata
+
+### Requirement: Terminal status display
+Terminal turn status SHALL be rendered as a timeline node or notice when the turn does not end as a normal completed response.
+
+#### Scenario: Tool loop status appears
+- **WHEN** a replayed or live turn ends with a tool-loop diagnosis
+- **THEN** the transcript SHALL show a terminal status node or notice after any partial assistant text
+- **AND** the node SHALL expose enough user-visible text to explain that the turn stopped abnormally
+
+#### Scenario: Cancellation or error status appears
+- **WHEN** a turn is cancelled, aborted, or fails with a runtime error
+- **THEN** live and replay SHALL render equivalent terminal status without relying on transient toast-only UI
 
 ### Requirement: Long transcript performance
 The transcript UI SHALL remain responsive for long timelines and frequent streaming deltas.

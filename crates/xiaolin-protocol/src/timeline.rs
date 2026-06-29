@@ -475,7 +475,12 @@ pub const SMALL_OUTPUT_MAX_LINES: u32 = 200;
 pub const SMALL_OUTPUT_MAX_TOKENS: u32 = 2_000;
 
 /// Check whether output satisfies the small-output policy.
-pub fn is_small_output(byte_length: u64, line_count: u32, estimated_tokens: u32, is_binary: bool) -> bool {
+pub fn is_small_output(
+    byte_length: u64,
+    line_count: u32,
+    estimated_tokens: u32,
+    is_binary: bool,
+) -> bool {
     !is_binary
         && byte_length <= SMALL_OUTPUT_MAX_BYTES
         && line_count <= SMALL_OUTPUT_MAX_LINES
@@ -897,9 +902,18 @@ mod tests {
     fn timeline_event_type_serde_roundtrip() {
         let cases = vec![
             (TimelineEventType::TurnStarted, "turn_started"),
-            (TimelineEventType::UserMessageCreated, "user_message_created"),
-            (TimelineEventType::AssistantTextDelta, "assistant_text_delta"),
-            (TimelineEventType::AssistantTextSnapshot, "assistant_text_snapshot"),
+            (
+                TimelineEventType::UserMessageCreated,
+                "user_message_created",
+            ),
+            (
+                TimelineEventType::AssistantTextDelta,
+                "assistant_text_delta",
+            ),
+            (
+                TimelineEventType::AssistantTextSnapshot,
+                "assistant_text_snapshot",
+            ),
             (TimelineEventType::ReasoningDelta, "reasoning_delta"),
             (TimelineEventType::ReasoningSnapshot, "reasoning_snapshot"),
             (TimelineEventType::ToolCallStarted, "tool_call_started"),
@@ -908,7 +922,10 @@ mod tests {
             (TimelineEventType::ApprovalRequested, "approval_requested"),
             (TimelineEventType::ApprovalResolved, "approval_resolved"),
             (TimelineEventType::IterationBoundary, "iteration_boundary"),
-            (TimelineEventType::AssistantMessageFinalized, "assistant_message_finalized"),
+            (
+                TimelineEventType::AssistantMessageFinalized,
+                "assistant_message_finalized",
+            ),
             (TimelineEventType::TurnFinished, "turn_finished"),
             (TimelineEventType::CompactBoundary, "compact_boundary"),
             (TimelineEventType::SystemNotice, "system_notice"),
@@ -1477,7 +1494,10 @@ mod tests {
 
         let event_json = serde_json::to_string(&event).unwrap();
         let event_back: TurnTimelineEvent = serde_json::from_str(&event_json).unwrap();
-        assert_eq!(event_back.event_type, TimelineEventType::AssistantTextSnapshot);
+        assert_eq!(
+            event_back.event_type,
+            TimelineEventType::AssistantTextSnapshot
+        );
 
         let payload: AssistantTextSnapshotPayload =
             serde_json::from_value(event_back.payload_json).unwrap();
@@ -1568,8 +1588,7 @@ mod tests {
         assert_eq!(back.event_type, TimelineEventType::TurnFinished);
         assert_eq!(back.seq, 100);
 
-        let payload: TurnFinishedPayload =
-            serde_json::from_value(back.payload_json).unwrap();
+        let payload: TurnFinishedPayload = serde_json::from_value(back.payload_json).unwrap();
         assert_eq!(payload.end_reason, "cancelled");
         assert_eq!(payload.user_message.unwrap(), "Turn was cancelled by user.");
     }

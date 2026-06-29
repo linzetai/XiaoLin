@@ -16,6 +16,7 @@ mod project;
 mod search;
 mod session;
 mod skills;
+pub(crate) mod timeline_emit;
 mod types;
 
 pub use plugins::broadcast_status_changed;

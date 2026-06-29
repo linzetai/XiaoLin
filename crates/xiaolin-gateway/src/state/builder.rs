@@ -882,6 +882,10 @@ impl StateBuilder {
             xiaolin_session::RuntimeQualityStore::open(p5.phase2.phase4.phase3.phase1.pool.clone())
                 .await?,
         );
+        let timeline_store_arc = Arc::new(xiaolin_session::TimelineStore::new(
+            p5.phase2.phase4.phase3.phase1.pool.clone(),
+        ));
+        timeline_store_arc.ensure_table().await?;
         let artifact_store: Arc<dyn xiaolin_session::ArtifactStore> = Arc::new(
             xiaolin_session::SqliteArtifactStore::open(p5.phase2.phase4.phase3.phase1.pool.clone())
                 .await?,
@@ -1049,6 +1053,7 @@ impl StateBuilder {
                 runtime_quality_store: runtime_quality_store.clone(),
                 artifact_store: artifact_store.clone(),
                 search_index: p5.phase2.phase4.phase3.phase1.search_index.clone(),
+                timeline_store: timeline_store_arc,
             },
             mem: super::MemoryState {
                 agent_episodic: Arc::new(p5.phase2.agent_episodic_map),

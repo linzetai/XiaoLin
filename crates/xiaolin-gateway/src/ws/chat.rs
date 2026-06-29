@@ -14,6 +14,7 @@ use xiaolin_protocol::{AgentEvent, ChatParams, ModeSource, PlanOutcome};
 use xiaolin_session_actor::SessionOp;
 
 use super::send_resp;
+use super::timeline_emit::{self, append_timeline_event, EmissionCandidate};
 use super::types::WsResponse;
 
 pub async fn handle_chat_cancel(
@@ -730,6 +731,11 @@ pub async fn spawn_chat(
         let input_estimate = setup.input_estimate;
         let model_for_budget = setup.model_for_budget.clone();
         let state_budget = state.clone();
+        let user_timeline_contents: Vec<String> = setup
+            .user_messages
+            .iter()
+            .filter_map(timeline_user_message_content)
+            .collect();
 
         // Persist user messages to session
         for msg in &setup.user_messages {
@@ -860,10 +866,52 @@ pub async fn spawn_chat(
         let mut pending_text_segment = String::new();
         let mut last_segment_type: &str = "";
         let mut current_turn_id: Option<xiaolin_protocol::TurnId> = None;
+        let mut user_timeline_emitted = false;
 
         // Track tool calls during the stream so we can persist enriched data
         // (including display_output, metadata) alongside the assistant message.
         let mut tracked_tools: Vec<TrackedToolCallData> = Vec::new();
+
+        // ── Timeline state (Phase 3) ────────────────────────────────────
+        // Text/reasoning coalescing: deltas are buffered and flushed at
+        // boundaries (before any visible non-text event and terminal turn).
+        let _timeline_now_ms = chrono::Utc::now().timestamp_millis();
+        let text_node_id = format!("text-{}", uuid::Uuid::new_v4());
+        let reasoning_node_id = format!("reasoning-{}", uuid::Uuid::new_v4());
+        let mut timeline_text_buffer = String::new();
+        let mut timeline_reasoning_buffer = String::new();
+        let mut text_offset: u64 = 0;
+        let mut reasoning_offset: u64 = 0;
+
+        // Flush text buffer — emits a single AssistantTextDelta with the
+        // accumulated content since the last flush point.
+        let flush_text_timeline = |offset: &mut u64, node_id: &str, content: &str| {
+            if content.is_empty() {
+                return Option::<timeline_emit::EmissionCandidate>::None;
+            }
+            let delta = content.to_string();
+            let current_offset = *offset;
+            *offset += delta.len() as u64;
+            Some(timeline_emit::build_text_delta(
+                node_id,
+                &delta,
+                current_offset,
+            ))
+        };
+
+        let flush_reasoning_timeline = |offset: &mut u64, node_id: &str, content: &str| {
+            if content.is_empty() {
+                return Option::<timeline_emit::EmissionCandidate>::None;
+            }
+            let delta = content.to_string();
+            let current_offset = *offset;
+            *offset += delta.len() as u64;
+            Some(timeline_emit::build_reasoning_delta(
+                node_id,
+                &delta,
+                current_offset,
+            ))
+        };
 
         let mode_at_start = state
             .rt
@@ -987,6 +1035,107 @@ pub async fn spawn_chat(
                 break;
             }
             state.store.event_log.append(&session_id, &event);
+
+            // ── Timeline event emission (Phase 3) ────────────────────────
+            let timeline_turn_id = current_turn_id
+                .as_ref()
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            let timeline_now = chrono::Utc::now().timestamp_millis();
+
+            // Map AgentEvent to timeline events and broadcast
+            let should_flush_text = matches!(
+                &event,
+                AgentEvent::ReasoningDelta { .. }
+                    | AgentEvent::ToolExecuting { .. }
+                    | AgentEvent::ToolResult { .. }
+                    | AgentEvent::ApprovalRequired { .. }
+                    | AgentEvent::IterationBoundary { .. }
+                    | AgentEvent::CompactBoundary { .. }
+                    | AgentEvent::TurnEnd { .. }
+                    | AgentEvent::TurnAborted { .. }
+                    | AgentEvent::Error { .. }
+            );
+
+            let should_flush_reasoning = matches!(
+                &event,
+                AgentEvent::ToolExecuting { .. }
+                    | AgentEvent::ToolResult { .. }
+                    | AgentEvent::ApprovalRequired { .. }
+                    | AgentEvent::IterationBoundary { .. }
+                    | AgentEvent::CompactBoundary { .. }
+                    | AgentEvent::TurnEnd { .. }
+                    | AgentEvent::TurnAborted { .. }
+                    | AgentEvent::Error { .. }
+            );
+
+            if should_flush_text {
+                // Flush accumulated assistant text as a delta before the boundary event
+                let text_delta =
+                    flush_text_timeline(&mut text_offset, &text_node_id, &timeline_text_buffer);
+                if let Some(candidate) = text_delta {
+                    timeline_text_buffer.clear();
+                    send_timeline_event(
+                        &state.store.timeline_store,
+                        &bg_tx,
+                        &session_id,
+                        &timeline_turn_id,
+                        candidate,
+                        timeline_now,
+                    )
+                    .await;
+                }
+            }
+
+            if should_flush_reasoning {
+                let reasoning_delta = flush_reasoning_timeline(
+                    &mut reasoning_offset,
+                    &reasoning_node_id,
+                    &timeline_reasoning_buffer,
+                );
+                if let Some(candidate) = reasoning_delta {
+                    timeline_reasoning_buffer.clear();
+                    send_timeline_event(
+                        &state.store.timeline_store,
+                        &bg_tx,
+                        &session_id,
+                        &timeline_turn_id,
+                        candidate,
+                        timeline_now,
+                    )
+                    .await;
+                }
+            }
+
+            // Map the AgentEvent to timeline events
+            if let Some(candidates) = timeline_emit::map_agent_event_to_timeline(&event) {
+                for candidate in candidates {
+                    send_timeline_event(
+                        &state.store.timeline_store,
+                        &bg_tx,
+                        &session_id,
+                        &timeline_turn_id,
+                        candidate,
+                        timeline_now,
+                    )
+                    .await;
+                }
+            }
+            if matches!(&event, AgentEvent::TurnStart { .. }) && !user_timeline_emitted {
+                for content in &user_timeline_contents {
+                    let candidate = timeline_emit::emit_user_message_timeline(content, None);
+                    send_timeline_event(
+                        &state.store.timeline_store,
+                        &bg_tx,
+                        &session_id,
+                        &timeline_turn_id,
+                        candidate,
+                        timeline_now,
+                    )
+                    .await;
+                }
+                user_timeline_emitted = true;
+            }
             // Capture tool events for enriched persistence
             if let AgentEvent::ToolExecuting {
                 ref call_id,
@@ -1119,6 +1268,7 @@ pub async fn spawn_chat(
                         last_segment_type = "text";
                     }
                     pending_text_segment.push_str(text);
+                    timeline_text_buffer.push_str(text);
                     assistant_content.push_str(text);
                     if assistant_content.len() > MAX_CONTENT_BYTES {
                         tracing::error!(
@@ -1140,6 +1290,7 @@ pub async fn spawn_chat(
                     segment_order.push("reasoning".to_string());
                     last_segment_type = "reasoning";
                 }
+                timeline_reasoning_buffer.push_str(content);
                 assistant_reasoning.push_str(content);
             }
             let is_done = matches!(&event, AgentEvent::TurnEnd { .. });
@@ -1683,6 +1834,79 @@ pub fn forward_event(event: &AgentEvent, req_id: &Option<String>) -> WsResponse 
         msg_type,
         data: Some(data),
         error,
+    }
+}
+
+async fn send_timeline_event(
+    store: &Arc<xiaolin_session::TimelineStore>,
+    bg_tx: &tokio::sync::mpsc::Sender<WsResponse>,
+    session_id: &str,
+    turn_id: &str,
+    candidate: EmissionCandidate,
+    now_ms: i64,
+) {
+    match append_timeline_event(store, session_id, turn_id, candidate, now_ms).await {
+        Ok(timeline_event) => match serde_json::to_value(&timeline_event) {
+            Ok(data) => {
+                let _ = bg_tx
+                    .send(WsResponse {
+                        id: None,
+                        msg_type: "timeline_event".into(),
+                        data: Some(data),
+                        error: None,
+                    })
+                    .await;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    session_id,
+                    turn_id,
+                    error = %e,
+                    "failed to serialize timeline event for broadcast"
+                );
+            }
+        },
+        Err(e) => {
+            tracing::warn!(
+                session_id,
+                turn_id,
+                error = %e,
+                "failed to append timeline event"
+            );
+        }
+    }
+}
+
+fn timeline_user_message_content(msg: &ChatMessage) -> Option<String> {
+    if !matches!(msg.role, xiaolin_core::types::Role::User) {
+        return None;
+    }
+
+    match msg.content.as_ref()? {
+        serde_json::Value::String(text) => {
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.clone())
+            }
+        }
+        serde_json::Value::Array(parts) => {
+            let text = parts
+                .iter()
+                .filter_map(|part| {
+                    part.get("text")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| part.as_str())
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            if text.is_empty() {
+                None
+            } else {
+                Some(text)
+            }
+        }
+        other => Some(other.to_string()),
     }
 }
 

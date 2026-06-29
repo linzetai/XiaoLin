@@ -4,8 +4,8 @@ mod event_log;
 mod models;
 mod runtime_quality_store;
 mod search_index;
-mod timeline_store;
 mod store;
+mod timeline_store;
 pub mod tool_output_projector;
 pub mod tool_output_store;
 

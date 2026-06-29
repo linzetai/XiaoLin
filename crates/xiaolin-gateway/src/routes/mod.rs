@@ -16,6 +16,7 @@ mod pty;
 mod session;
 mod stt;
 pub(crate) mod subagent;
+mod timeline;
 mod traces;
 mod wechat;
 
@@ -194,6 +195,31 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/v1/cost/daily", get(cost::get_daily_tokens))
         .route("/api/v1/cost/tools", get(cost::get_tool_stats))
         .route("/api/v1/cost/sessions", get(cost::get_session_costs))
+        // Timeline
+        .route(
+            "/api/v1/sessions/:session_id/timeline",
+            get(timeline::get_session_timeline),
+        )
+        .route(
+            "/api/v1/sessions/:session_id/timeline/max_seq",
+            get(timeline::get_timeline_max_seq),
+        )
+        .route(
+            "/api/v1/sessions/:session_id/turns/:turn_id/timeline",
+            get(timeline::get_turn_timeline),
+        )
+        .route(
+            "/api/v1/sessions/:session_id/display-nodes",
+            get(timeline::get_session_display_nodes),
+        )
+        .route(
+            "/api/v1/sessions/:session_id/turns/:turn_id/display-nodes",
+            get(timeline::get_turn_display_nodes),
+        )
+        .route(
+            "/api/v1/sessions/:session_id/tool-output/:handle",
+            get(timeline::get_tool_output_detail),
+        )
         // Runtime diagnostics
         .route(
             "/api/v1/diagnostics/runtime-quality/turns",
