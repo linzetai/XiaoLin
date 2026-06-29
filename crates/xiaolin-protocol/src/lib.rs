@@ -7,6 +7,7 @@ pub mod message;
 pub mod op;
 pub mod runtime_quality;
 pub mod search;
+pub mod timeline;
 pub mod tool_spec;
 pub mod usage;
 
@@ -35,4 +36,17 @@ pub use search::{
     SearchFilters, SearchIndexStatusResponse, SearchQueryRequest, SearchQueryResponse, SearchResult,
 };
 pub use tool_spec::{FunctionDefinition, ToolDefinition, ToolKind, ToolParameterSchema};
+pub use timeline::{
+    is_small_output, ApprovalNode, ApprovalRequestedPayload, ApprovalResolvedPayload,
+    AssistantMessageFinalizedPayload, AssistantTextDeltaPayload, AssistantTextNode,
+    AssistantTextSnapshotPayload, CompactBoundaryPayload, IterationBoundaryNode,
+    IterationBoundaryPayload, NodeStatus, OutputDetailReference, OutputPreview,
+    ReasoningDeltaPayload, ReasoningNode, ReasoningSnapshotPayload, SourceEventTrace,
+    SystemNoticeNode, SystemNoticePayload, TerminalDiagnosisMetadata, TimelineEventId,
+    TimelineEventType, ToolCallFinishedPayload, ToolCallProgressPayload, ToolCallStartedPayload,
+    ToolCategory, ToolGroupNode, ToolStepNode, ToolTargetMetadata, TurnDisplayNode,
+    TurnFinishedPayload, TurnStartedPayload, TurnStatusNode, TurnTimelineEvent,
+    UserMessageCreatedPayload, UserMessageNode, SMALL_OUTPUT_MAX_BYTES, SMALL_OUTPUT_MAX_LINES,
+    SMALL_OUTPUT_MAX_TOKENS, TIMELINE_SCHEMA_VERSION,
+};
 pub use usage::TokenUsage;

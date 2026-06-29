@@ -24,4 +24,10 @@ fn export_all_bindings() {
     xiaolin_protocol::ToolKind::export_all(&cfg).unwrap();
     xiaolin_protocol::SubmissionId::export_all(&cfg).unwrap();
     xiaolin_protocol::Envelope::<xiaolin_protocol::AgentEvent>::export_all(&cfg).unwrap();
+
+    // Timeline types
+    xiaolin_protocol::TurnTimelineEvent::export_all(&cfg).unwrap();
+    xiaolin_protocol::TurnDisplayNode::export_all(&cfg).unwrap();
+    xiaolin_protocol::TimelineEventType::export_all(&cfg).unwrap();
+    xiaolin_protocol::TimelineEventId::export_all(&cfg).unwrap();
 }
