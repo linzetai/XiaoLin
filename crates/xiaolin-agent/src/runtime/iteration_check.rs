@@ -217,7 +217,8 @@ pub(crate) async fn iteration_pre_check(
 
     // Phase 8.3: accumulate projection metrics into turn-level quality summary
     if compact_result.projection_tokens > 0 {
-        ms.runtime_quality.accumulate_projected_tokens(compact_result.projection_tokens);
+        ms.runtime_quality
+            .accumulate_projected_tokens(compact_result.projection_tokens);
     }
 
     // ── 6b. Invalidate file state cache after significant compression ─

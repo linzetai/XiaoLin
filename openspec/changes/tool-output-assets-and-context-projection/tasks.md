@@ -78,16 +78,16 @@
 
 ## 9. Quality Gates And Benchmarks
 
-- [ ] 9.1 Add raw recovery tests proving exact line-range recall after projection, compaction, and session resume.
-- [ ] 9.2 Add large `rg` integration scenario proving the agent can locate relevant matches via recall tools without rerunning the original search.
-- [ ] 9.3 Add failed test log scenario proving shell/test projector surfaces failure blocks and recall can fetch exact surrounding lines.
-- [ ] 9.4 Add large file-read scenario proving projected file output can recover arbitrary line ranges after compaction.
-- [ ] 9.5 Add multi-turn long-session scenario proving compact-after-continuation remains correct with output handles.
-- [ ] 9.6 Add performance benchmarks for multi-megabyte ingestion, indexing, search, and page reads with documented thresholds.
-- [ ] 9.7 Add token budget tests proving projection tokens remain bounded and raw/projected accounting is reported separately.
-- [ ] 9.8 Add prompt-cache stability tests proving deterministic manifest formatting across repeated context assemblies.
-- [ ] 9.9 Add no-negative-optimization benchmark proving small/medium output scenarios do not require extra recall calls compared with direct inline output.
-- [ ] 9.10 Add recall-loop benchmark proving repeated broad paging or same-range recall is detected and redirected.
+- [x] 9.1 Add raw recovery tests proving exact line-range recall after projection, compaction, and session resume.
+- [x] 9.2 Add large `rg` integration scenario proving the agent can locate relevant matches via recall tools without rerunning the original search.
+- [x] 9.3 Add failed test log scenario proving shell/test projector surfaces failure blocks and recall can fetch exact surrounding lines.
+- [x] 9.4 Add large file-read scenario proving projected file output can recover arbitrary line ranges after compaction.
+- [x] 9.5 Add multi-turn long-session scenario proving compact-after-continuation remains correct with output handles.
+- [x] 9.6 Add performance benchmarks for multi-megabyte ingestion, indexing, search, and page reads with documented thresholds.
+- [x] 9.7 Add token budget tests proving projection tokens remain bounded and raw/projected accounting is reported separately.
+- [x] 9.8 Add prompt-cache stability tests proving deterministic manifest formatting across repeated context assemblies.
+- [x] 9.9 Add no-negative-optimization benchmark proving small/medium output scenarios do not require extra recall calls compared with direct inline output.
+- [x] 9.10 Add recall-loop benchmark proving repeated broad paging or same-range recall is detected and redirected.
 
 ## 10. UI And Protocol Integration
 

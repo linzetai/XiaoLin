@@ -906,18 +906,12 @@ mod tests {
             prompt.contains("output_search"),
             "should mention output_search"
         );
-        assert!(
-            prompt.contains("output_tail"),
-            "should mention output_tail"
-        );
+        assert!(prompt.contains("output_tail"), "should mention output_tail");
         assert!(
             prompt.contains("Do NOT attempt"),
             "should warn against embedding raw output"
         );
-        assert!(
-            prompt.contains("out_..."),
-            "should reference handle format"
-        );
+        assert!(prompt.contains("out_..."), "should reference handle format");
         assert!(
             prompt.contains("referenced in later analysis"),
             "should preserve handle-decision connections"

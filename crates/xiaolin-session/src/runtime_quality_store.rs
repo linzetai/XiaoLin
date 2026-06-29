@@ -352,7 +352,8 @@ fn row_to_summary(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<TurnQualitySum
         raw_output_token_estimate: row.try_get::<i64, _>("raw_output_token_estimate")? as u64,
         projected_output_tokens: row.try_get::<i64, _>("projected_output_tokens")? as u64,
         recall_count: row.try_get::<i64, _>("recall_count")? as u32,
-        repeated_tool_call_indicators: row.try_get::<i64, _>("repeated_tool_call_indicators")? as u32,
+        repeated_tool_call_indicators: row.try_get::<i64, _>("repeated_tool_call_indicators")?
+            as u32,
     })
 }
 

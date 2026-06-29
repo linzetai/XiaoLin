@@ -1,12 +1,12 @@
 use xiaolin_core::types::{ChatMessage, Role};
 
+#[cfg(test)]
+use super::tool_executor::RECALL_HINT_MARKER;
 use super::tool_executor::{
     build_cleared_with_recall, classify_retention_tier, summarize_tool_result, RetentionTier,
     BUDGET_RECENT_EPHEMERAL_CHARS, BUDGET_RECENT_FULL_RETAIN_CHARS, BUDGET_RECENT_SUMMARIZE_CHARS,
     SUMMARIZE_MAX_CHARS, TIME_COMPACT_FULL_RETAIN_CHARS,
 };
-#[cfg(test)]
-use super::tool_executor::RECALL_HINT_MARKER;
 
 /// Semantic importance score for a tool result.
 ///

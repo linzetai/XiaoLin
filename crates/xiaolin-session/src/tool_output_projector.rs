@@ -18,9 +18,7 @@
 //! timestamps, blob paths, or random identifiers in model-visible text).
 //! This is critical for prompt-cache stability.
 
-use crate::tool_output_store::{
-    ProjectionProvenance, ProjectorKind, ToolOutputAsset,
-};
+use crate::tool_output_store::{ProjectionProvenance, ProjectorKind, ToolOutputAsset};
 
 // ============================================================================
 // Excerpt bounds
@@ -121,7 +119,8 @@ impl Projection {
     pub fn estimated_tokens(&self) -> usize {
         let mut sum: usize = 0;
         // Header: "[<type_label> (provenance: <provenance>) — handle: <handle>]\n"
-        sum += 30 + self.type_label.len() + self.provenance.as_model_tag().len() + self.handle.len();
+        sum +=
+            30 + self.type_label.len() + self.provenance.as_model_tag().len() + self.handle.len();
         // Summary lines: "- <line>\n" each
         for line in &self.summary_lines {
             sum += 2 + line.len() + 1;

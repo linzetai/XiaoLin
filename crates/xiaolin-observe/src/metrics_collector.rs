@@ -138,10 +138,7 @@ impl MetricsCollector {
         format!("error|{}", escape_label_value(error_type))
     }
 
-    fn asset_creation_counter_key(
-        tool_name: &str,
-        size_class: &str,
-    ) -> String {
+    fn asset_creation_counter_key(tool_name: &str, size_class: &str) -> String {
         format!(
             "output_asset_created|{}|{}",
             escape_label_value(tool_name),
@@ -167,10 +164,7 @@ impl MetricsCollector {
         )
     }
 
-    fn recall_tool_counter_key(
-        recall_tool: &str,
-        status: &str,
-    ) -> String {
+    fn recall_tool_counter_key(recall_tool: &str, status: &str) -> String {
         format!(
             "output_recall|{}|{}",
             escape_label_value(recall_tool),
@@ -179,17 +173,11 @@ impl MetricsCollector {
     }
 
     fn recall_tokens_counter_key(recall_tool: &str) -> String {
-        format!(
-            "output_recall_tokens|{}",
-            escape_label_value(recall_tool)
-        )
+        format!("output_recall_tokens|{}", escape_label_value(recall_tool))
     }
 
     fn recall_latency_key(recall_tool: &str) -> String {
-        format!(
-            "output_recall_latency|{}",
-            escape_label_value(recall_tool)
-        )
+        format!("output_recall_latency|{}", escape_label_value(recall_tool))
     }
 
     fn token_counter_key(model: &str) -> String {
@@ -622,7 +610,8 @@ impl MetricsCollector {
                     let _ = writeln!(
                         &mut out,
                         "xiaolin_output_assets_created_total{{tool=\"{}\",size_class=\"{}\"}} {}",
-                        parts[0], parts[1],
+                        parts[0],
+                        parts[1],
                         e.value().load(Ordering::Relaxed)
                     );
                 }
@@ -690,16 +679,15 @@ impl MetricsCollector {
                     let _ = writeln!(
                         &mut out,
                         "xiaolin_output_recall_total{{tool=\"{}\",status=\"{}\"}} {}",
-                        parts[0], parts[1],
+                        parts[0],
+                        parts[1],
                         e.value().load(Ordering::Relaxed)
                     );
                 }
             }
         }
 
-        out.push_str(
-            "# HELP xiaolin_output_recall_tokens_total Tokens returned by recall tools\n",
-        );
+        out.push_str("# HELP xiaolin_output_recall_tokens_total Tokens returned by recall tools\n");
         out.push_str("# TYPE xiaolin_output_recall_tokens_total counter\n");
         for e in self.counters.iter() {
             let key = e.key();
@@ -713,9 +701,7 @@ impl MetricsCollector {
             }
         }
 
-        out.push_str(
-            "# HELP xiaolin_output_recall_latency_ms Recall tool latency by tool\n",
-        );
+        out.push_str("# HELP xiaolin_output_recall_latency_ms Recall tool latency by tool\n");
         out.push_str("# TYPE xiaolin_output_recall_latency_ms summary\n");
         for e in self.histograms.iter() {
             let key = e.key();

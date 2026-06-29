@@ -286,22 +286,40 @@ pub(crate) struct ProcessedOutputInfo {
 /// Extracts key fields (file_path, pattern, command, etc.) up to `max_len` chars.
 fn build_arguments_summary(tool_name: &str, arguments: &str, max_len: usize) -> String {
     let _ = tool_name; // TODO: future tool-specific key extraction
-    if arguments.is_empty() { return String::new(); }
+    if arguments.is_empty() {
+        return String::new();
+    }
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(arguments) {
         if let Some(obj) = parsed.as_object() {
             let mut parts: Vec<String> = Vec::new();
-            for key in &["file_path", "path", "pattern", "command", "cmd", "query", "skill"] {
+            for key in &[
+                "file_path",
+                "path",
+                "pattern",
+                "command",
+                "cmd",
+                "query",
+                "skill",
+            ] {
                 if let Some(val) = obj.get(*key) {
-                    let s = match val { serde_json::Value::String(s) => s.clone(), other => other.to_string() };
-                    if s.len() <= 80 { parts.push(format!("{key}={s}")); }
-                    else {
+                    let s = match val {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    if s.len() <= 80 {
+                        parts.push(format!("{key}={s}"));
+                    } else {
                         let safe = safe_truncate(&s, 77);
                         parts.push(format!("{key}={safe}..."));
                     }
-                    if parts.iter().map(|p| p.len()).sum::<usize>() > max_len { break; }
+                    if parts.iter().map(|p| p.len()).sum::<usize>() > max_len {
+                        break;
+                    }
                 }
             }
-            if !parts.is_empty() { return parts.join(", "); }
+            if !parts.is_empty() {
+                return parts.join(", ");
+            }
         }
     }
     format!("{}...", safe_truncate(arguments, max_len))
@@ -309,13 +327,18 @@ fn build_arguments_summary(tool_name: &str, arguments: &str, max_len: usize) -> 
 
 /// Build a human-readable relevance description from pre-computed args summary.
 fn build_relevance(tool_name: &str, args_summary: &str) -> String {
-    if args_summary.is_empty() { format!("{tool_name} output") }
-    else { format!("{tool_name} output for {args_summary}") }
+    if args_summary.is_empty() {
+        format!("{tool_name} output")
+    } else {
+        format!("{tool_name} output for {args_summary}")
+    }
 }
 
 /// Truncate to max_bytes on a UTF-8 char boundary via std::floor_char_boundary.
 fn safe_truncate(s: &str, max_bytes: usize) -> &str {
-    if s.len() <= max_bytes { return s; }
+    if s.len() <= max_bytes {
+        return s;
+    }
     let end = s.floor_char_boundary(max_bytes);
     &s[..end]
 }
@@ -374,7 +397,10 @@ async fn process_tool_output(
                             xiaolin_session::tool_output_store::OutputSizeClass::Large => "large",
                         };
                         xiaolin_observe::record_output_asset_created(tool_name, sc_str);
-                        xiaolin_observe::record_output_asset_raw_bytes(tool_name, output.len() as u64);
+                        xiaolin_observe::record_output_asset_raw_bytes(
+                            tool_name,
+                            output.len() as u64,
+                        );
                     }
                     // Use the projector registry to produce a typed projection
                     let msg = match store.get_asset(handle.as_str(), sid).await {
@@ -427,12 +453,15 @@ async fn process_tool_output(
         Ok(None) => (output, None),
         Err(e) => {
             tracing::warn!(error = %e, tool = tool_name, "ToolResultStorage failed, falling back to truncation");
-            (truncate_tool_result_output_with_limit(
-                &output,
-                tool_name,
-                "",
-                Some(max_result_size_chars),
-            ), None)
+            (
+                truncate_tool_result_output_with_limit(
+                    &output,
+                    tool_name,
+                    "",
+                    Some(max_result_size_chars),
+                ),
+                None,
+            )
         }
     }
 }
@@ -1636,7 +1665,8 @@ mod arguments_summary_tests {
 
     #[test]
     fn build_relevance_reads_file() {
-        let args_summary = build_arguments_summary("read_file", r#"{"file_path": "src/main.rs"}"#, 120);
+        let args_summary =
+            build_arguments_summary("read_file", r#"{"file_path": "src/main.rs"}"#, 120);
         let r = build_relevance("read_file", &args_summary);
         assert!(r.contains("read_file"));
         assert!(r.contains("src/main.rs"), "got: {r}");
@@ -1644,7 +1674,8 @@ mod arguments_summary_tests {
 
     #[test]
     fn build_relevance_shell_exec() {
-        let args_summary = build_arguments_summary("shell_exec", r#"{"command": "cargo test"}"#, 120);
+        let args_summary =
+            build_arguments_summary("shell_exec", r#"{"command": "cargo test"}"#, 120);
         let r = build_relevance("shell_exec", &args_summary);
         assert!(r.contains("shell_exec"));
         assert!(r.contains("cargo test"), "got: {r}");

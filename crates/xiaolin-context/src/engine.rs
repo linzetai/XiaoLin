@@ -1131,7 +1131,8 @@ impl ContextEngine {
                     || t.starts_with("[recall-available]")
                     || t.starts_with("[superseded")
                     || t == "[Old tool result content cleared]"
-                    || t.starts_with("<persisted-output>") || t.contains("<persisted-output>")
+                    || t.starts_with("<persisted-output>")
+                    || t.contains("<persisted-output>")
                     || t.starts_with("[shell/test output — handle:")
                     || t.starts_with("[file read output — handle:")
                     || t.starts_with("[search/grep output — handle:")

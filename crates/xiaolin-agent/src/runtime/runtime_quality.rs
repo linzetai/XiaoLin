@@ -266,7 +266,8 @@ impl RuntimeQualityCollector {
             raw_output_token_estimate: self.raw_output_token_estimate,
             projected_output_tokens: self.projected_output_tokens,
             recall_count: take_recall_count(),
-            repeated_tool_call_indicators: repeated_tool_warn_count + repeated_tool_force_stop_count,
+            repeated_tool_call_indicators: repeated_tool_warn_count
+                + repeated_tool_force_stop_count,
         }
     }
 }
@@ -611,7 +612,8 @@ mod tests {
         let config: AgentConfig = serde_json::from_value(serde_json::json!({
             "agentId": "privacy-test",
             "model": { "provider": "openai" }
-        })).unwrap();
+        }))
+        .unwrap();
 
         let summary = collector.build_summary(
             "sess-privacy",
@@ -624,10 +626,22 @@ mod tests {
         );
 
         // Phase 8.3 fields are aggregates — never expose raw content
-        assert_eq!(summary.asset_count, 1, "asset_count should be aggregate count only");
-        assert!(summary.raw_output_token_estimate > 0, "should record token estimate");
-        assert!(summary.projected_output_tokens > 0, "should record projection tokens");
-        assert_eq!(summary.recall_count, 1, "should record recall invocation count");
+        assert_eq!(
+            summary.asset_count, 1,
+            "asset_count should be aggregate count only"
+        );
+        assert!(
+            summary.raw_output_token_estimate > 0,
+            "should record token estimate"
+        );
+        assert!(
+            summary.projected_output_tokens > 0,
+            "should record projection tokens"
+        );
+        assert_eq!(
+            summary.recall_count, 1,
+            "should record recall invocation count"
+        );
 
         // evidence_json must not capture any part of the sensitive payload
         let evidence = summary.evidence_json.to_string();

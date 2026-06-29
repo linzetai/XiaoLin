@@ -1725,12 +1725,30 @@ mod tests {
     #[test]
     fn provenance_as_model_tag() {
         assert_eq!(ProjectionProvenance::RawInline.as_model_tag(), "raw");
-        assert_eq!(ProjectionProvenance::AssetManifest.as_model_tag(), "projected");
-        assert_eq!(ProjectionProvenance::TypedSummary.as_model_tag(), "summarized");
-        assert_eq!(ProjectionProvenance::RecalledExcerpt.as_model_tag(), "recalled");
-        assert_eq!(ProjectionProvenance::LlmSummary.as_model_tag(), "auto-compacted");
-        assert_eq!(ProjectionProvenance::HardFitRemoval.as_model_tag(), "hard-fit-removed");
-        assert_eq!(ProjectionProvenance::LegacyPersisted.as_model_tag(), "legacy-persisted");
+        assert_eq!(
+            ProjectionProvenance::AssetManifest.as_model_tag(),
+            "projected"
+        );
+        assert_eq!(
+            ProjectionProvenance::TypedSummary.as_model_tag(),
+            "summarized"
+        );
+        assert_eq!(
+            ProjectionProvenance::RecalledExcerpt.as_model_tag(),
+            "recalled"
+        );
+        assert_eq!(
+            ProjectionProvenance::LlmSummary.as_model_tag(),
+            "auto-compacted"
+        );
+        assert_eq!(
+            ProjectionProvenance::HardFitRemoval.as_model_tag(),
+            "hard-fit-removed"
+        );
+        assert_eq!(
+            ProjectionProvenance::LegacyPersisted.as_model_tag(),
+            "legacy-persisted"
+        );
     }
 
     // =========================================================================

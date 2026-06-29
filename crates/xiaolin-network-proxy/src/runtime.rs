@@ -638,9 +638,7 @@ async fn resolve_host(host: &str) -> anyhow::Result<Vec<IpAddr>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{
-        NetworkDomainPermissionEntry, NetworkDomainPermissions,
-    };
+    use crate::config::{NetworkDomainPermissionEntry, NetworkDomainPermissions};
     use crate::network_policy::NetworkProtocol;
 
     #[allow(dead_code)]

@@ -247,9 +247,13 @@ impl ContextProjectionPipeline {
                         self.budget.record_projection(raw_bytes, &projection);
                         let saved = (raw_bytes / 4).saturating_sub(proj_tokens);
                         xiaolin_observe::record_output_asset_projected_tokens(
-                            msg.name.as_deref().unwrap_or("unknown"), proj_tokens as u64);
+                            msg.name.as_deref().unwrap_or("unknown"),
+                            proj_tokens as u64,
+                        );
                         xiaolin_observe::record_output_asset_tokens_saved(
-                            msg.name.as_deref().unwrap_or("unknown"), saved as u64);
+                            msg.name.as_deref().unwrap_or("unknown"),
+                            saved as u64,
+                        );
                         msg.content = Some(serde_json::Value::String(projection.format()));
                     } else {
                         let h = handle.as_deref().unwrap_or("unknown");
@@ -292,9 +296,13 @@ impl ContextProjectionPipeline {
                         self.budget.record_projection(raw_bytes, &projection);
                         let saved = (raw_bytes / 4).saturating_sub(proj_tokens);
                         xiaolin_observe::record_output_asset_projected_tokens(
-                            msg.name.as_deref().unwrap_or("unknown"), proj_tokens as u64);
+                            msg.name.as_deref().unwrap_or("unknown"),
+                            proj_tokens as u64,
+                        );
                         xiaolin_observe::record_output_asset_tokens_saved(
-                            msg.name.as_deref().unwrap_or("unknown"), saved as u64);
+                            msg.name.as_deref().unwrap_or("unknown"),
+                            saved as u64,
+                        );
                         msg.content = Some(serde_json::Value::String(projection.format()));
                     } else {
                         let h = handle.as_deref().unwrap_or("unknown");

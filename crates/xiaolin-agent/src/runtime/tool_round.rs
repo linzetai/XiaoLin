@@ -676,17 +676,20 @@ pub(crate) async fn execute_tool_round(
 
         // Track output handle in restoration state for post-compact recovery
         if let Some(ref info) = handle_info {
-            let digest = xiaolin_session::tool_output_store::ArgumentsDigestInput::from_arguments(&arguments);
+            let digest = xiaolin_session::tool_output_store::ArgumentsDigestInput::from_arguments(
+                &arguments,
+            );
             ms.query_loop.restoration_state.add_output_handle(
                 info.handle.clone(),
                 info.tool_name.clone(),
                 info.arguments_summary.clone(),
                 digest.digest,
             );
-        // Phase 8.3: track asset creation in turn-level quality summary
-        if handle_info.is_some() {
-            ms.runtime_quality.record_asset_created(tool_output_with_validation.len());
-        }
+            // Phase 8.3: track asset creation in turn-level quality summary
+            if handle_info.is_some() {
+                ms.runtime_quality
+                    .record_asset_created(tool_output_with_validation.len());
+            }
         }
 
         let header = semantic_header(

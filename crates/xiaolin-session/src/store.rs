@@ -488,7 +488,10 @@ impl SessionStore {
                 ("raw_output_token_estimate", "INTEGER NOT NULL DEFAULT 0"),
                 ("projected_output_tokens", "INTEGER NOT NULL DEFAULT 0"),
                 ("recall_count", "INTEGER NOT NULL DEFAULT 0"),
-                ("repeated_tool_call_indicators", "INTEGER NOT NULL DEFAULT 0"),
+                (
+                    "repeated_tool_call_indicators",
+                    "INTEGER NOT NULL DEFAULT 0",
+                ),
             ];
             for (col_name, col_def) in &cols {
                 let count: i64 = sqlx::query_scalar(&format!(

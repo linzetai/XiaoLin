@@ -72,3 +72,7 @@ sqlx.workspace = true
 [[bench]]
 name = "prompt_token_budget"
 harness = false
+
+[[bench]]
+name = "output_asset_bench"
+harness = false

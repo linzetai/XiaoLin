@@ -63,7 +63,12 @@ fn current_store() -> Option<Arc<ToolOutputAssetStore>> {
 /// `raw_bytes_read` should be the actual bytes of asset content read, NOT the
 /// formatted output string (which includes headers/footers/navigation hints).
 /// This ensures token estimates reflect the substantive content returned.
-fn record_recall_metrics(recall_tool: &str, status: &str, raw_bytes_read: usize, start: std::time::Instant) {
+fn record_recall_metrics(
+    recall_tool: &str,
+    status: &str,
+    raw_bytes_read: usize,
+    start: std::time::Instant,
+) {
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     // Use actual raw bytes read as the token proxy, not formatted output length.
     let token_estimate = (raw_bytes_read / 4) as u64;
@@ -367,7 +372,10 @@ Pagination metadata is included so you can navigate forward/backward."
                     end.saturating_sub(start_pos)
                 ));
             }
-            let content = match store.read_blob_range(&asset, &session_id, start_pos, end).await {
+            let content = match store
+                .read_blob_range(&asset, &session_id, start_pos, end)
+                .await
+            {
                 Ok(c) => c,
                 Err(e) => return ToolResult::err(format!("{e}")),
             };
