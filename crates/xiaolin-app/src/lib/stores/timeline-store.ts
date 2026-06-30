@@ -30,7 +30,7 @@ export interface TimelineStore {
   /** Bulk-load timeline events (for initial load or replay). */
   loadEvents: (sessionId: string, events: TurnTimelineEvent[]) => void;
   /** Replace state with materialized display nodes (for full reload). */
-  loadNodes: (sessionId: string, nodes: TurnDisplayNode[]) => void;
+  loadNodes: (sessionId: string, nodes: TurnDisplayNode[], maxSeq?: number) => void;
   /** Initialize state for a new session. */
   initSession: (sessionId: string) => void;
   /** Clean up state for a closed session. */
@@ -87,18 +87,37 @@ export const useTimelineStore = create<TimelineStore>((set) => ({
   loadEvents: (sessionId, events) => {
     set((state) => {
       const updated = reduceTimelineEvents(events);
+      const incomingMaxSeq = events.reduce(
+        (max, event) => Math.max(max, event.seq),
+        0,
+      );
       // Merge with any existing events (dedup by seq)
       const current = state.states[sessionId];
       if (current && current.events.length > 0) {
         const existingIds = new Set(current.events.map((e) => e.id));
         const newEvents = events.filter((e) => !existingIds.has(e.id));
-        if (newEvents.length === 0) return state; // nothing new
+        if (newEvents.length === 0) {
+          if (incomingMaxSeq <= (state.lastSeenSeq[sessionId] ?? 0)) return state;
+          return {
+            lastSeenSeq: {
+              ...state.lastSeenSeq,
+              [sessionId]: incomingMaxSeq,
+            },
+          };
+        }
         const allEvents = [...current.events, ...newEvents].sort(
           (a, b) => a.seq - b.seq,
         );
         const merged = reduceTimelineEvents(allEvents);
         return {
           states: { ...state.states, [sessionId]: merged },
+          lastSeenSeq: {
+            ...state.lastSeenSeq,
+            [sessionId]: Math.max(
+              state.lastSeenSeq[sessionId] ?? 0,
+              merged.maxSeq,
+            ),
+          },
         };
       }
       return {
@@ -114,7 +133,7 @@ export const useTimelineStore = create<TimelineStore>((set) => ({
     });
   },
 
-  loadNodes: (sessionId, nodes) => {
+  loadNodes: (sessionId, nodes, maxSeq) => {
     set((state) => {
       const current = state.states[sessionId] ?? emptyTimelineState(sessionId);
       return {
@@ -125,6 +144,12 @@ export const useTimelineStore = create<TimelineStore>((set) => ({
             nodes,
           },
         },
+        lastSeenSeq: maxSeq == null
+          ? state.lastSeenSeq
+          : {
+              ...state.lastSeenSeq,
+              [sessionId]: Math.max(state.lastSeenSeq[sessionId] ?? 0, maxSeq),
+            },
       };
     });
   },

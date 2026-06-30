@@ -14,20 +14,30 @@
  * - TurnNodeRenderer with empty nodes array
  */
 
-import { describe, it, expect } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { TurnNodeRenderer } from "../TurnNodeRenderer";
+import { TurnBlock } from "../TurnBlock";
+import * as api from "../../../lib/api";
 import {
   reduceTimelineEvents,
   materializeNodes,
   emptyTimelineState,
   reduceTimelineEvent,
+  selectTurnGroups,
 } from "../../../lib/timeline";
+import type { TurnGroup } from "../../../lib/timeline/selectors";
 import {
   simpleTextTurnFixture,
   complexTurnFixture,
   toolLoopTerminationFixture,
   makeTextDelta,
+  makeToolStarted,
+  makeToolFinished,
+  makeReasoningDelta,
+  makeUserMessageCreated,
+  makeTurnStarted,
+  makeTurnFinished,
 } from "../../../lib/timeline/fixtures";
 import type {
   AssistantTextNode,
@@ -36,7 +46,58 @@ import type {
   TurnStatusNode,
   SystemNoticeNode,
   ApprovalNode,
+  ToolGroupNode,
+  ToolStepNode,
 } from "../../../lib/timeline/types";
+
+vi.mock("../../../lib/api", () => ({
+  getToolOutputDetail: vi.fn(() => Promise.resolve({
+    content: "line 1\nline 2",
+    truncated: false,
+    total_bytes: 13,
+    total_lines: 2,
+  })),
+}));
+
+beforeEach(() => {
+  vi.mocked(api.getToolOutputDetail).mockReset();
+  vi.mocked(api.getToolOutputDetail).mockResolvedValue({
+    content: "line 1\nline 2",
+    truncated: false,
+    total_bytes: 13,
+    total_lines: 2,
+  });
+});
+
+function toolStep(overrides: Partial<ToolStepNode> = {}): ToolStepNode {
+  return {
+    kind: "tool_step",
+    node_id: "tool-default",
+    turn_id: "t1",
+    status: "completed",
+    created_at_ms: 1000,
+    updated_at_ms: 1200,
+    tool_name: "read_file",
+    tool_category: "file",
+    display_title: "Read README.md",
+    call_id: "tc-default",
+    ...overrides,
+  };
+}
+
+function smallPreview(
+  content: string,
+  contentType = "text",
+): NonNullable<ToolStepNode["output_preview"]> {
+  return {
+    content,
+    byte_length: new TextEncoder().encode(content).byteLength,
+    line_count: content.split("\n").length,
+    estimated_tokens: Math.max(1, Math.ceil(content.length / 4)),
+    is_binary: false,
+    content_type: contentType,
+  };
+}
 
 // ============================================================================
 // Smoke tests — renderer doesn't crash
@@ -86,6 +147,57 @@ describe("TurnNodeRenderer smoke tests", () => {
 // ============================================================================
 
 describe("Node view mapping", () => {
+  it("renders assistant text, tool step, and resumed text in timeline order", async () => {
+    const events = [
+      makeTextDelta({
+        seq: 1,
+        payload: { node_id: "text-before", delta: "I will inspect the file first." },
+      }),
+      makeToolStarted({
+        seq: 2,
+        payload: {
+          call_id: "tc-read-order",
+          tool_name: "read_file",
+          tool_category: "file",
+          display_title: "Read README.md",
+          args: '{"path":"README.md"}',
+        },
+      }),
+      makeToolFinished({
+        seq: 3,
+        payload: {
+          call_id: "tc-read-order",
+          tool_name: "read_file",
+          success: true,
+          output_preview: { ...smallPreview("contents") },
+        },
+      }),
+      makeTextDelta({
+        seq: 4,
+        payload: { node_id: "text-after", delta: "The file is straightforward." },
+      }),
+    ];
+    const nodes = reduceTimelineEvents(events).nodes;
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={nodes} sessionId="session-1" />,
+    );
+
+    await waitFor(() => {
+      expect(container.textContent).toContain("I will inspect the file first.");
+      expect(container.textContent).toContain("Read README.md");
+      expect(container.textContent).toContain("The file is straightforward.");
+    });
+
+    const text = container.textContent ?? "";
+    expect(text.indexOf("I will inspect the file first.")).toBeLessThan(
+      text.indexOf("Read README.md"),
+    );
+    expect(text.indexOf("Read README.md")).toBeLessThan(
+      text.indexOf("The file is straightforward."),
+    );
+  });
+
   it("assistant_text node renders content in markdown", async () => {
     const events = simpleTextTurnFixture();
     const state = reduceTimelineEvents(events);
@@ -121,7 +233,7 @@ describe("Node view mapping", () => {
     expect(container.textContent).toContain("Let me think about this.");
   });
 
-  it("iteration_boundary node renders three dots", () => {
+  it("iteration_boundary node renders a quiet divider without iteration text", () => {
     const node: IterationBoundaryNode = {
       kind: "iteration_boundary",
       node_id: "ib-1",
@@ -135,9 +247,8 @@ describe("Node view mapping", () => {
     const { container } = render(
       <TurnNodeRenderer nodes={[node]} />,
     );
-    // Three dots should be rendered
-    const dots = container.querySelectorAll(".rounded-full");
-    expect(dots.length).toBeGreaterThanOrEqual(3);
+    expect(container.textContent).not.toContain("iteration");
+    expect(container.innerHTML).toBe("");
   });
 
   it("turn_status node shows tool_loop diagnosis", () => {
@@ -223,6 +334,365 @@ describe("Node view mapping", () => {
     );
     expect(container.textContent).toContain("allow_once");
     expect(container.textContent).toContain("user");
+  });
+
+  it("tool_step renders compact metadata and small output without detail fetch", () => {
+    const node: ToolStepNode = {
+      kind: "tool_step",
+      node_id: "tool-small",
+      turn_id: "t1",
+      status: "completed",
+      created_at_ms: 1000,
+      updated_at_ms: 1200,
+      tool_name: "read_file",
+      tool_category: "file",
+      display_title: "Read README.md",
+      call_id: "tc-small",
+      target: { path: "README.md" },
+      duration_ms: 200,
+      output_preview: {
+        content: "hello\nworld",
+        byte_length: 11,
+        line_count: 2,
+        estimated_tokens: 3,
+        is_binary: false,
+        content_type: "text",
+      },
+    };
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[node]} sessionId="session-1" />,
+    );
+
+    expect(container.textContent).toContain("Read README.md");
+    expect(container.textContent).toContain("README.md");
+    fireEvent.click(container.querySelector("button")!);
+    expect(container.textContent).toContain("hello");
+    expect(api.getToolOutputDetail).not.toHaveBeenCalled();
+  });
+
+  it("tool_step lazily loads large output details through the session endpoint", async () => {
+    const node: ToolStepNode = {
+      kind: "tool_step",
+      node_id: "tool-large",
+      turn_id: "t1",
+      status: "completed",
+      created_at_ms: 1000,
+      updated_at_ms: 1200,
+      tool_name: "grep",
+      tool_category: "search",
+      display_title: "Search matches",
+      call_id: "tc-large",
+      output_detail: {
+        handle: "out_large",
+        byte_length: 50_000,
+        line_count: 1200,
+        is_expandable: true,
+        size_class: "large",
+        summary: "1,200 lines",
+        content_type: "search_results",
+      },
+    };
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[node]} sessionId="session-1" />,
+    );
+
+    fireEvent.click(container.querySelector("button")!);
+    fireEvent.click(container.querySelectorAll("button")[1]);
+
+    await waitFor(() => {
+      expect(api.getToolOutputDetail).toHaveBeenCalledWith("session-1", "out_large");
+    });
+    await waitFor(() => {
+      expect(container.textContent).toContain("line 1");
+    });
+  });
+
+  it("tool_group expands steps in original order", () => {
+    const first: ToolStepNode = {
+      kind: "tool_step",
+      node_id: "tool-1",
+      turn_id: "t1",
+      status: "completed",
+      created_at_ms: 1000,
+      updated_at_ms: 1100,
+      tool_name: "read_file",
+      display_title: "Read a.txt",
+      call_id: "tc-1",
+    };
+    const second: ToolStepNode = {
+      ...first,
+      node_id: "tool-2",
+      display_title: "Read b.txt",
+      call_id: "tc-2",
+    };
+    const group: ToolGroupNode = {
+      kind: "tool_group",
+      node_id: "group-1",
+      turn_id: "t1",
+      status: "completed",
+      created_at_ms: 1000,
+      updated_at_ms: 1200,
+      group_label: "Read files",
+      step_count: 2,
+      steps: [first, second],
+      collapsed: true,
+    };
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[group]} sessionId="session-1" />,
+    );
+
+    expect(container.textContent).toContain("Read files");
+    expect(container.textContent).not.toContain("Read a.txt");
+    fireEvent.click(container.querySelector("button")!);
+    expect(container.textContent?.indexOf("Read a.txt")).toBeLessThan(
+      container.textContent?.indexOf("Read b.txt") ?? -1,
+    );
+  });
+
+  it("tool_step covers running status, progress, target command, and sub-second duration", () => {
+    const now = Date.now();
+    const node = toolStep({
+      status: "running",
+      tool_category: "shell",
+      display_title: "Run tests",
+      target: { command: "pnpm test" },
+      started_at_ms: now - 1500,
+      duration_ms: 250,
+      progress: 1.4,
+      progress_label: "finishing",
+      args: '{"command":"pnpm test"}',
+    });
+
+    const { container } = render(<TurnNodeRenderer nodes={[node]} />);
+
+    expect(container.textContent).toContain("Run tests");
+    expect(container.textContent).toContain("pnpm test");
+    expect(container.textContent).toContain("finishing");
+    expect(container.textContent).toContain("1.5s");
+    const progressFill = container.querySelector(".h-full.rounded-full") as HTMLElement | null;
+    expect(progressFill?.style.width).toBe("100%");
+
+    fireEvent.click(container.querySelector("button")!);
+    expect(container.textContent).toContain('"command": "pnpm test"');
+  });
+
+  it("tool_step covers failed and cancelled error branches", () => {
+    const failed = toolStep({
+      node_id: "failed",
+      status: "failed",
+      display_title: "Run command",
+      error_message: "Command failed",
+    });
+    const cancelled = toolStep({
+      node_id: "cancelled",
+      status: "cancelled",
+      display_title: "Cancel command",
+      error_message: "User cancelled",
+    });
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[failed, cancelled]} />,
+    );
+
+    const buttons = container.querySelectorAll("button");
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+    expect(container.textContent).toContain("Command failed");
+    expect(container.textContent).toContain("User cancelled");
+  });
+
+  it("tool_step does not expand when there are no args or output details", () => {
+    const node = toolStep({
+      output_preview: undefined,
+      output_detail: undefined,
+      args: undefined,
+      error_message: undefined,
+    });
+
+    const { container } = render(<TurnNodeRenderer nodes={[node]} />);
+    const button = container.querySelector("button")!;
+
+    expect(button.getAttribute("aria-expanded")).toBeNull();
+    fireEvent.click(button);
+    expect(container.textContent).not.toContain("Params");
+    expect(container.textContent).not.toContain("Output");
+  });
+
+  it("tool_step hides inline preview when small-output policy rejects it", () => {
+    const node = toolStep({
+      output_preview: {
+        content: "binary data",
+        byte_length: 10,
+        line_count: 1,
+        estimated_tokens: 2,
+        is_binary: true,
+        content_type: "text",
+      },
+    });
+
+    const { container } = render(<TurnNodeRenderer nodes={[node]} />);
+    fireEvent.click(container.querySelector("button")!);
+    expect(container.textContent).not.toContain("binary data");
+    expect(api.getToolOutputDetail).not.toHaveBeenCalled();
+  });
+
+  it("tool_step renders json and search result structured output branches", () => {
+    const jsonNode = toolStep({
+      node_id: "json-tool",
+      display_title: "Read JSON",
+      output_preview: smallPreview('{"a":1}', "json"),
+    });
+    const searchNode = toolStep({
+      node_id: "search-tool",
+      display_title: "Search files",
+      tool_category: "search",
+      output_preview: {
+        ...smallPreview(
+          Array.from({ length: 22 }, (_, i) => `match-${i}`).join("\n"),
+          "search_results",
+        ),
+        line_count: 22,
+      },
+    });
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[jsonNode, searchNode]} />,
+    );
+
+    const buttons = container.querySelectorAll("button");
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+    expect(container.textContent).toContain('"a": 1');
+    expect(container.textContent).toContain("match-0");
+    expect(container.textContent).toContain("+2 more results");
+  });
+
+  it("tool_step truncates long default text output branch", () => {
+    const longText = `${Array.from({ length: 205 }, (_, i) => `line-${i}`).join("\n")}`;
+    const node = toolStep({
+      output_preview: {
+        content: longText,
+        byte_length: 1000,
+        line_count: 10,
+        estimated_tokens: 20,
+        is_binary: false,
+        content_type: "text",
+      },
+    });
+
+    const { container } = render(<TurnNodeRenderer nodes={[node]} />);
+    fireEvent.click(container.querySelector("button")!);
+    expect(container.textContent).toContain("line-0");
+    expect(container.textContent).toContain("…");
+  });
+
+  it("tool_step covers large-output head, range, tail, and tail continuation branches", async () => {
+    const detailMock = vi.mocked(api.getToolOutputDetail);
+    detailMock
+      .mockResolvedValueOnce({
+        content: "head content",
+        truncated: true,
+        total_bytes: 100,
+        total_lines: 20,
+        continuation: { next_offset: 10 },
+      })
+      .mockResolvedValueOnce({
+        content: "range content",
+        truncated: true,
+        total_bytes: 100,
+        total_lines: 20,
+      })
+      .mockResolvedValueOnce({
+        content: "tail content",
+        truncated: true,
+        total_bytes: 100,
+        total_lines: 20,
+      })
+      .mockResolvedValueOnce({
+        content: "more tail content",
+        truncated: false,
+        total_bytes: 100,
+        total_lines: 20,
+      });
+
+    const node = toolStep({
+      node_id: "large-paged",
+      output_detail: {
+        handle: "out_paged",
+        byte_length: 100,
+        line_count: 20,
+        is_expandable: true,
+        summary: "paged output",
+        content_type: "command_output",
+      },
+    });
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[node]} sessionId="session-1" />,
+    );
+
+    fireEvent.click(container.querySelector("button")!);
+    fireEvent.click(container.querySelectorAll("button")[1]);
+    await waitFor(() => expect(container.textContent).toContain("head content"));
+
+    fireEvent.click(container.querySelectorAll("button")[1]);
+    await waitFor(() => expect(container.textContent).toContain("range content"));
+    expect(detailMock).toHaveBeenCalledWith("session-1", "out_paged", {
+      range_start: 10,
+      range_end: 65546,
+    });
+
+    fireEvent.click(container.querySelectorAll("button")[3]);
+    await waitFor(() => expect(container.textContent).toContain("tail content"));
+    expect(detailMock).toHaveBeenCalledWith("session-1", "out_paged", {
+      tail_lines: 100,
+    });
+
+    fireEvent.click(container.querySelectorAll("button")[1]);
+    await waitFor(() => expect(container.textContent).toContain("more tail content"));
+    expect(detailMock).toHaveBeenCalledWith("session-1", "out_paged", {
+      tail_lines: 300,
+    });
+  });
+
+  it("tool_step renders large-output detail error branch", async () => {
+    vi.mocked(api.getToolOutputDetail).mockRejectedValueOnce(new Error("expired"));
+    const node = toolStep({
+      output_detail: {
+        handle: "out_expired",
+        byte_length: 100,
+        line_count: 20,
+        is_expandable: true,
+      },
+    });
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[node]} sessionId="session-1" />,
+    );
+
+    fireEvent.click(container.querySelector("button")!);
+    fireEvent.click(container.querySelectorAll("button")[1]);
+    await waitFor(() => expect(container.textContent).toContain("expired"));
+  });
+
+  it("tool_step does not render detail controls for large output without session scope", () => {
+    const node = toolStep({
+      output_detail: {
+        handle: "out_large",
+        byte_length: 100,
+        line_count: 20,
+        is_expandable: true,
+      },
+    });
+
+    const { container } = render(<TurnNodeRenderer nodes={[node]} />);
+
+    fireEvent.click(container.querySelector("button")!);
+    expect(container.textContent).not.toContain("Output detail");
+    expect(api.getToolOutputDetail).not.toHaveBeenCalled();
   });
 });
 
@@ -346,5 +816,491 @@ describe("High-frequency delta resilience", () => {
       (n) => n.kind === "assistant_text",
     );
     expect(textNodes.length).toBe(1);
+  });
+});
+
+// ============================================================================
+// Turn grouping (Section 10 — Codex/ChatGPT message blocks)
+// ============================================================================
+
+describe("Turn grouping (selectTurnGroups)", () => {
+  it("partitions flat nodes into turn groups with user message and assistant nodes", () => {
+    const events = simpleTextTurnFixture();
+    const state = reduceTimelineEvents(events);
+
+    const groups = selectTurnGroups(state);
+    expect(groups.length).toBeGreaterThanOrEqual(1);
+
+    const firstGroup = groups[0];
+    expect(firstGroup.userMessageNode).not.toBeNull();
+    expect(firstGroup.userMessageNode!.kind).toBe("user_message");
+    expect(firstGroup.assistantNodes.length).toBeGreaterThanOrEqual(1);
+    // Assistant nodes should NOT include user_message
+    expect(firstGroup.assistantNodes.some((n) => n.kind === "user_message")).toBe(false);
+  });
+
+  it("groups multiple turns in order", () => {
+    const events = [
+      // First turn
+      makeTurnStarted({ seq: 1, turn_id: "t1" }),
+      makeUserMessageCreated({ seq: 2, turn_id: "t1", payload: { content: "First question" } }),
+      makeTextDelta({ seq: 3, turn_id: "t1", payload: { node_id: "at-1", delta: "First answer" } }),
+      makeTurnFinished({ seq: 4, turn_id: "t1", payload: { end_reason: "completed" } }),
+      // Second turn
+      makeTurnStarted({ seq: 5, turn_id: "t2" }),
+      makeUserMessageCreated({ seq: 6, turn_id: "t2", payload: { content: "Second question" } }),
+      makeTextDelta({ seq: 7, turn_id: "t2", payload: { node_id: "at-2", delta: "Second answer" } }),
+      makeTurnFinished({ seq: 8, turn_id: "t2", payload: { end_reason: "completed" } }),
+    ];
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+
+    expect(groups.length).toBe(2);
+    expect(groups[0].turnId).toBe("t1");
+    expect(groups[0].userMessageNode?.content).toBe("First question");
+    expect(groups[1].turnId).toBe("t2");
+    expect(groups[1].userMessageNode?.content).toBe("Second question");
+    expect(groups[1].assistantNodes.some((n) => n.kind === "assistant_text" && (n as AssistantTextNode).content.includes("Second answer"))).toBe(true);
+  });
+
+  it("preserves global order for interleaved turn continuations", () => {
+    const events = [
+      makeTurnStarted({ seq: 1, turn_id: "t1" }),
+      makeUserMessageCreated({ seq: 2, turn_id: "t1", payload: { content: "First question" } }),
+      makeTextDelta({ seq: 3, turn_id: "t1", payload: { node_id: "at-1a", delta: "First part." } }),
+      makeTurnStarted({ seq: 4, turn_id: "t2" }),
+      makeUserMessageCreated({ seq: 5, turn_id: "t2", payload: { content: "Second question" } }),
+      makeTextDelta({ seq: 6, turn_id: "t2", payload: { node_id: "at-2", delta: "Second answer." } }),
+      makeTextDelta({ seq: 7, turn_id: "t1", payload: { node_id: "at-1b", delta: "First continuation." } }),
+    ];
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+
+    expect(groups.map((g) => g.turnId)).toEqual(["t1", "t2", "t1"]);
+    expect(groups[0].userMessageNode?.content).toBe("First question");
+    expect(groups[1].userMessageNode?.content).toBe("Second question");
+    expect(groups[2].userMessageNode).toBeNull();
+    expect((groups[2].assistantNodes[0] as AssistantTextNode).content).toContain("First continuation.");
+  });
+
+  it("handles system-initiated turns (no user message)", () => {
+    const state = emptyTimelineState("sys-test");
+    // Add system notice without a user message
+    let s = reduceTimelineEvent(state, makeTurnStarted({ seq: 1, turn_id: "sys-1" }));
+    s = reduceTimelineEvent(s, { id: "evt-sys", session_id: "sys-test", turn_id: "sys-1", seq: 2, schema_version: 1, event_type: "system_notice", payload_json: { node_id: "sn-1", category: "compaction", level: "info", message: "Context compacted." } as unknown as Record<string, unknown>, created_at_ms: 1000 });
+    s = reduceTimelineEvent(s, makeTurnFinished({ seq: 3, turn_id: "sys-1", payload: { end_reason: "completed" } }));
+
+    const groups = selectTurnGroups(s);
+    expect(groups.length).toBe(1);
+    expect(groups[0].userMessageNode).toBeNull();
+    expect(groups[0].assistantNodes.length).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// TurnBlock rendering
+// ============================================================================
+
+describe("TurnBlock rendering", () => {
+  it("renders user message followed by assistant response nodes", async () => {
+    const events = simpleTextTurnFixture();
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+
+    const { container } = render(
+      <TurnBlock turnGroup={groups[0]} sessionId="session-1" />,
+    );
+
+    // User message content should appear
+    expect(container.textContent).toContain("What is 2+2?");
+    // Assistant response should appear
+    await waitFor(() => {
+      expect(container.textContent).toContain("2+2 = 4");
+    }, { timeout: 5000 });
+  });
+
+  it("renders turn with only user message (no assistant response yet)", () => {
+    const group: TurnGroup = {
+      groupId: "pending-turn:0",
+      turnId: "pending-turn",
+      userMessageNode: {
+        kind: "user_message",
+        node_id: "um-1",
+        turn_id: "pending-turn",
+        status: "completed",
+        created_at_ms: 1000,
+        updated_at_ms: 1000,
+        content: "Hello?",
+      },
+      assistantNodes: [],
+    };
+
+    const { container } = render(
+      <TurnBlock turnGroup={group} />,
+    );
+
+    expect(container.textContent).toContain("Hello?");
+    // No assistant response block should be rendered
+    expect(container.querySelector(".assistant-response")).toBeNull();
+  });
+
+  it("renders user messages as a right-aligned Codex App-style bubble", () => {
+    const group: TurnGroup = {
+      groupId: "short-user:0",
+      turnId: "short-user",
+      userMessageNode: {
+        kind: "user_message",
+        node_id: "um-short",
+        turn_id: "short-user",
+        status: "completed",
+        created_at_ms: 1000,
+        updated_at_ms: 1000,
+        content: "review 下代码",
+      },
+      assistantNodes: [],
+    };
+
+    const { container } = render(<TurnBlock turnGroup={group} />);
+    const textEl = container.querySelector('[class*="whitespace-pre-wrap"]') as HTMLElement | null;
+
+    expect(textEl?.textContent).toBe("review 下代码");
+    expect(textEl?.style.wordBreak).toBe("normal");
+    const userBubble = container.querySelector(".group\\/user-input") as HTMLElement | null;
+    expect(userBubble).toBeTruthy();
+    expect(userBubble?.style.justifyContent).toBe("flex-end");
+  });
+});
+
+// ============================================================================
+// Ordering within assistant response blocks (Task 10.6 / 10.7)
+// ============================================================================
+
+describe("Ordering within assistant response blocks", () => {
+  it("preserves reasoning → tool → reasoning → text order", () => {
+    const events = [
+      makeTurnStarted({ seq: 1, turn_id: "t-order" }),
+      makeUserMessageCreated({ seq: 2, turn_id: "t-order", payload: { content: "Do the thing" } }),
+      makeReasoningDelta({ seq: 3, turn_id: "t-order", payload: { node_id: "r-1", delta: "Let me think..." } }),
+      makeToolStarted({ seq: 4, turn_id: "t-order", payload: { call_id: "tc-1", tool_name: "grep", tool_category: "search", display_title: "Search files", args: "{}" } }),
+      makeToolFinished({ seq: 5, turn_id: "t-order", payload: { call_id: "tc-1", tool_name: "grep", success: true, output_preview: { content: "found", byte_length: 5, line_count: 1, estimated_tokens: 1, is_binary: false, content_type: "text" } } }),
+      makeReasoningDelta({ seq: 6, turn_id: "t-order", payload: { node_id: "r-2", delta: "Now I know..." } }),
+      makeTextDelta({ seq: 7, turn_id: "t-order", payload: { node_id: "at-order", delta: "Here is the result." } }),
+      makeTurnFinished({ seq: 8, turn_id: "t-order", payload: { end_reason: "completed" } }),
+    ];
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+    const assistantNodes = groups[0].assistantNodes;
+
+    const kinds = assistantNodes.map((n) => n.kind);
+    // Should have reasoning, tool_step, reasoning, assistant_text, turn_status in that order
+    // (turn_finished always appends a turn_status node)
+    const nonStatusKinds = kinds.filter((k) => k !== "turn_status");
+    expect(nonStatusKinds).toEqual(["reasoning", "tool_step", "reasoning", "assistant_text"]);
+
+    const { container } = render(
+      <TurnBlock turnGroup={groups[0]} sessionId="session-1" />,
+    );
+    const response = container.querySelector(".assistant-response")!;
+    const presentationKinds = Array.from(response.querySelectorAll("[data-timeline-node-kind], [data-presentation-kind]"))
+      .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"))
+      .filter((kind) => kind !== "turn_status");
+    expect(presentationKinds).toEqual(["process_summary", "assistant_text"]);
+    expect(container.textContent).toContain("已处理");
+    expect(container.textContent).toContain("Here is the result.");
+    expect(container.textContent).not.toContain("Let me think");
+
+    fireEvent.click(response.querySelector('[data-presentation-kind="process_summary"] button')!);
+    const expandedKinds = Array.from(response.querySelectorAll("[data-completed-process-transcript] [data-timeline-node-kind], [data-completed-process-transcript] [data-presentation-kind]"))
+      .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"));
+    expect(expandedKinds).toEqual(["reasoning", "tool_activity_group", "tool_step", "reasoning"]);
+  });
+
+  it("preserves text → tool → text order", () => {
+    const events = [
+      makeTurnStarted({ seq: 1, turn_id: "t-ttt" }),
+      makeUserMessageCreated({ seq: 2, turn_id: "t-ttt", payload: { content: "Check file" } }),
+      makeTextDelta({ seq: 3, turn_id: "t-ttt", payload: { node_id: "at-1", delta: "Let me check the file." } }),
+      makeToolStarted({ seq: 4, turn_id: "t-ttt", payload: { call_id: "tc-ttt", tool_name: "read_file", tool_category: "file", display_title: "Read file", args: "{}" } }),
+      makeToolFinished({ seq: 5, turn_id: "t-ttt", payload: { call_id: "tc-ttt", tool_name: "read_file", success: true } }),
+      makeTextDelta({ seq: 6, turn_id: "t-ttt", payload: { node_id: "at-2", delta: "The file contains..." } }),
+      makeTurnFinished({ seq: 7, turn_id: "t-ttt", payload: { end_reason: "completed" } }),
+    ];
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+    const assistantNodes = groups[0].assistantNodes;
+
+    const kinds = assistantNodes.map((n) => n.kind);
+    // Text nodes should be separate (not merged across tool boundary)
+    // (turn_finished always appends a turn_status node)
+    const nonStatusKinds = kinds.filter((k) => k !== "turn_status");
+    expect(nonStatusKinds).toEqual(["assistant_text", "tool_step", "assistant_text"]);
+  });
+
+  it("renders text → tool → text in correct DOM order", async () => {
+    const events = [
+      makeTurnStarted({ seq: 1, turn_id: "t-dom" }),
+      makeUserMessageCreated({ seq: 2, turn_id: "t-dom", payload: { content: "Check" } }),
+      makeTextDelta({ seq: 3, turn_id: "t-dom", payload: { node_id: "at-before", delta: "Before tool." } }),
+      makeToolStarted({ seq: 4, turn_id: "t-dom", payload: { call_id: "tc-dom", tool_name: "ls", tool_category: "shell", display_title: "List files", args: "{}" } }),
+      makeToolFinished({ seq: 5, turn_id: "t-dom", payload: { call_id: "tc-dom", tool_name: "ls", success: true } }),
+      makeTextDelta({ seq: 6, turn_id: "t-dom", payload: { node_id: "at-after", delta: "After tool." } }),
+      makeTurnFinished({ seq: 7, turn_id: "t-dom", payload: { end_reason: "completed" } }),
+    ];
+    const state = reduceTimelineEvents(events);
+
+    const groups = selectTurnGroups(state);
+    const { container } = render(
+      <TurnBlock turnGroup={groups[0]} sessionId="session-1" />,
+    );
+
+    await waitFor(() => {
+      expect(container.textContent).toContain("Before tool.");
+      expect(container.textContent).toContain("After tool.");
+    });
+
+    const response = container.querySelector(".assistant-response")!;
+    const domKinds = Array.from(response.querySelectorAll("[data-timeline-node-kind], [data-presentation-kind]"))
+      .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"))
+      .filter((kind) => kind !== "turn_status");
+    expect(domKinds).toEqual(["assistant_text", "process_summary", "assistant_text"]);
+    const text = container.textContent ?? "";
+    expect(text.indexOf("Before tool.")).toBeLessThan(text.indexOf("已处理"));
+    expect(text.indexOf("已处理")).toBeLessThan(text.indexOf("After tool."));
+
+    fireEvent.click(response.querySelector('[data-presentation-kind="process_summary"] button')!);
+    expect(container.textContent).toContain("Run command");
+  });
+});
+
+// ============================================================================
+// Iteration boundary diagnostics (Task 10.5)
+// ============================================================================
+
+describe("Iteration boundary diagnostics", () => {
+  it("hides iteration label in default UI", () => {
+    const node: IterationBoundaryNode = {
+      kind: "iteration_boundary",
+      node_id: "ib-d",
+      turn_id: "t1",
+      status: "completed",
+      created_at_ms: 1000,
+      updated_at_ms: 1000,
+      iteration: 5,
+    };
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[node]} />,
+    );
+
+    const label = container.querySelector(".iteration-label") as HTMLElement | null;
+    expect(label).toBeNull();
+    expect(container.textContent).not.toContain("Iteration 5");
+  });
+
+  it("shows iteration label when data-diagnostics is enabled", () => {
+    const node: IterationBoundaryNode = {
+      kind: "iteration_boundary",
+      node_id: "ib-v",
+      turn_id: "t1",
+      status: "completed",
+      created_at_ms: 1000,
+      updated_at_ms: 1000,
+      iteration: 3,
+    };
+
+    const { container } = render(
+      <div data-diagnostics="true">
+        <TurnNodeRenderer nodes={[node]} showDiagnostics />
+      </div>,
+    );
+
+    // With data-diagnostics, the iteration label should be visible
+    expect(container.textContent).toContain("Iteration 3");
+  });
+
+  it("boundary remains as thin divider, not shown as a chat message", () => {
+    const node: IterationBoundaryNode = {
+      kind: "iteration_boundary",
+      node_id: "ib-div",
+      turn_id: "t1",
+      status: "completed",
+      created_at_ms: 1000,
+      updated_at_ms: 1000,
+      iteration: 2,
+    };
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[node]} />,
+    );
+
+    const hiddenEl = container.querySelector('[aria-hidden="true"]');
+    expect(hiddenEl).toBeNull();
+    expect(container.innerHTML).toBe("");
+  });
+});
+
+// ============================================================================
+// Codex/ChatGPT layout visual structure
+// ============================================================================
+
+describe("Codex/ChatGPT layout visual structure", () => {
+  it("assistant response block wraps tool steps and reasoning as activity rows", () => {
+    const events = complexTurnFixture();
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+
+    const { container } = render(
+      <TurnBlock turnGroup={groups[0]} sessionId="session-1" />,
+    );
+
+    // Should have assistant-response container
+    expect(container.querySelector(".assistant-response")).toBeTruthy();
+    // Tool steps and reasoning should be inside the assistant response
+    const response = container.querySelector(".assistant-response")!;
+    expect(response.innerHTML.length).toBeGreaterThan(0);
+    expect(response.querySelectorAll("[data-activity-row]").length).toBeGreaterThan(0);
+  });
+
+  it("tool loop termination status appears within assistant response block", () => {
+    const events = toolLoopTerminationFixture();
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+
+    const { container } = render(
+      <TurnBlock turnGroup={groups[0]} sessionId="session-1" />,
+    );
+
+    // Turn status (abnormal) should be inside the assistant response
+    const response = container.querySelector(".assistant-response");
+    expect(response).toBeTruthy();
+    expect(container.textContent).toContain("tool loop");
+  });
+
+  it("covers running reasoning, running tool, completed tool, resumed text, and abnormal status inside one assistant response", async () => {
+    const events = [
+      makeTurnStarted({ seq: 1, turn_id: "t-layout" }),
+      makeUserMessageCreated({ seq: 2, turn_id: "t-layout", payload: { content: "Investigate" } }),
+      makeReasoningDelta({ seq: 3, turn_id: "t-layout", payload: { node_id: "r-live", delta: "Checking context." } }),
+      makeToolStarted({ seq: 4, turn_id: "t-layout", payload: { call_id: "tc-running", tool_name: "grep", tool_category: "search", display_title: "Search code", args: "{}" } }),
+      makeToolStarted({ seq: 5, turn_id: "t-layout", payload: { call_id: "tc-done", tool_name: "read_file", tool_category: "file", display_title: "Read file", args: "{}" } }),
+      makeToolFinished({
+        seq: 6,
+        turn_id: "t-layout",
+        payload: {
+          call_id: "tc-done",
+          tool_name: "read_file",
+          success: true,
+          output_preview: smallPreview("file body") as unknown as Record<string, unknown>,
+        },
+      }),
+      makeTextDelta({ seq: 7, turn_id: "t-layout", payload: { node_id: "at-layout", delta: "The answer resumes here." } }),
+      makeTurnFinished({ seq: 8, turn_id: "t-layout", payload: { end_reason: "tool_loop" } }),
+    ];
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+
+    const { container } = render(
+      <TurnBlock turnGroup={groups[0]} isLive sessionId="session-1" />,
+    );
+
+    await waitFor(() => {
+      const response = container.querySelector(".assistant-response")!;
+      const domKinds = Array.from(response.querySelectorAll("[data-timeline-node-kind], [data-presentation-kind]"))
+        .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"));
+      expect(domKinds).toEqual(["process_summary", "assistant_text", "turn_status"]);
+      expect(response.querySelectorAll("[data-activity-row]").length).toBeGreaterThanOrEqual(2);
+      expect(container.textContent).toContain("The answer resumes here.");
+      expect(response.querySelector('[data-timeline-node-kind="turn_status"]')).toBeTruthy();
+    });
+
+    const response = container.querySelector(".assistant-response")!;
+    fireEvent.click(response.querySelector('[data-presentation-kind="process_summary"] button')!);
+    const expandedKinds = Array.from(response.querySelectorAll("[data-completed-process-transcript] [data-timeline-node-kind], [data-completed-process-transcript] [data-presentation-kind]"))
+      .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"));
+    expect(expandedKinds).toEqual(["reasoning", "tool_activity_group", "tool_step", "tool_activity_group", "tool_step"]);
+  });
+
+  it("summarizes sub-agent spawn/get tools without exposing raw function names by default", () => {
+    const events = [
+      makeTurnStarted({ seq: 1, turn_id: "t-subagents" }),
+      makeUserMessageCreated({ seq: 2, turn_id: "t-subagents", payload: { content: "Review changes" } }),
+      makeToolStarted({
+        seq: 3,
+        turn_id: "t-subagents",
+        payload: {
+          call_id: "spawn-1",
+          tool_name: "spawn_subagent",
+          tool_category: "sub_agent",
+          display_title: "Sub-agent",
+          args: "{}",
+        },
+      }),
+      makeToolFinished({ seq: 4, turn_id: "t-subagents", payload: { call_id: "spawn-1", tool_name: "spawn_subagent", success: true } }),
+      makeToolStarted({
+        seq: 5,
+        turn_id: "t-subagents",
+        payload: {
+          call_id: "get-1",
+          tool_name: "subagent_get",
+          tool_category: "sub_agent",
+          display_title: "subagent_get",
+          args: "{}",
+        },
+      }),
+      makeToolFinished({ seq: 6, turn_id: "t-subagents", payload: { call_id: "get-1", tool_name: "subagent_get", success: true } }),
+    ];
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+
+    const { container } = render(
+      <TurnBlock turnGroup={groups[0]} sessionId="session-1" />,
+    );
+
+    const response = container.querySelector(".assistant-response")!;
+    expect(response.querySelector('[data-presentation-kind="tool_activity_group"]')).toBeTruthy();
+    expect(container.textContent).toContain("Reviewed with 2 sub-agents");
+    expect(container.textContent).not.toContain("subagent_get");
+  });
+
+  it("keeps diff inspection and sub-agent review as separate activity groups", () => {
+    const events = [
+      makeTurnStarted({ seq: 1, turn_id: "t-mixed-tools" }),
+      makeUserMessageCreated({ seq: 2, turn_id: "t-mixed-tools", payload: { content: "Review code" } }),
+      makeToolStarted({
+        seq: 3,
+        turn_id: "t-mixed-tools",
+        payload: {
+          call_id: "diff-1",
+          tool_name: "shell_exec",
+          tool_category: "shell",
+          display_title: "Run git diff --stat",
+        },
+      }),
+      makeToolFinished({ seq: 4, turn_id: "t-mixed-tools", payload: { call_id: "diff-1", tool_name: "shell_exec", success: true } }),
+      makeToolStarted({
+        seq: 5,
+        turn_id: "t-mixed-tools",
+        payload: {
+          call_id: "spawn-1",
+          tool_name: "spawn_subagent",
+          tool_category: "sub_agent",
+          display_title: "Sub-agent",
+          args: "{}",
+        },
+      }),
+      makeToolFinished({ seq: 6, turn_id: "t-mixed-tools", payload: { call_id: "spawn-1", tool_name: "spawn_subagent", success: true } }),
+    ];
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+
+    const { container } = render(
+      <TurnBlock turnGroup={groups[0]} sessionId="session-1" />,
+    );
+
+    const activityGroups = container.querySelectorAll('[data-presentation-kind="tool_activity_group"]');
+    expect(activityGroups.length).toBe(2);
+    expect(container.textContent).toContain("Inspect changed files");
+    expect(container.textContent).toContain("Reviewed with 1 sub-agent");
+    expect(container.textContent).not.toContain("Run git diff --stat");
   });
 });

@@ -67,8 +67,8 @@ export const UserInput = memo(function UserInput({ msg, copyable, selected, onTo
           background: "var(--bg-user-msg)",
           borderRadius: 14,
           padding: "10px 16px",
-          maxWidth: "70%",
-          width: "fit-content",
+          maxWidth: "min(70%, var(--content-max-w, 720px))",
+          width: "max-content",
         }}
       >
         {msg.isSteer && (
@@ -79,7 +79,14 @@ export const UserInput = memo(function UserInput({ msg, copyable, selected, onTo
             {t("steerAppend")}
           </span>
         )}
-        <div className="text-[14px] leading-[1.5] whitespace-pre-wrap break-words" style={{ color: "var(--fill-primary)", overflowWrap: "anywhere" }}>
+        <div
+          className="text-[14px] leading-[1.5] whitespace-pre-wrap break-words"
+          style={{
+            color: "var(--fill-primary)",
+            overflowWrap: "break-word",
+            wordBreak: "normal",
+          }}
+        >
           {text}
         </div>
 

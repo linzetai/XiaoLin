@@ -29,6 +29,7 @@ Because XiaoLin is not launched yet, this design intentionally does not preserve
 - Make one canonical turn timeline the only source for UI-visible chat history.
 - Make live rendering, reload, reconnect, and historical replay use the same reducer/materializer contract.
 - Improve tool-call and streamed text display while changing the data model, not as a later cosmetic pass.
+- Align the visible chat UI with Codex App / ChatGPT message streams, not Codex CLI terminal transcripts.
 - Keep small outputs inline so common tool results remain understandable without additional fetches.
 - Support large output expansion through references without making the default transcript heavy.
 - Provide objective quality gates for equivalence, performance, and UI regressions.
@@ -129,9 +130,30 @@ Every node has a stable `nodeId`, `turnId`, `status`, `createdAtMs`, `updatedAtM
 
 `TurnStatusNode` is the visible terminal state for non-successful or diagnostically important turn endings. It carries the turn end reason, optional terminal diagnosis code/severity/message/evidence, cancellation or error metadata when available, and source event trace metadata. A partial assistant text node MAY remain visible before the status node, but the transcript must not make a tool-loop, cancellation, or runtime failure look like a normally completed assistant response.
 
+### D6a. Codex App / ChatGPT Message Structure
+
+The canonical timeline is the ordering source, but the visible UI SHALL NOT render it as a flat Codex CLI-style log. The renderer groups display nodes by turn and renders them as message blocks:
+
+```text
+User message
+
+Assistant response
+  reasoning segment (at its timeline position, collapsed/secondary)
+  tool activity row(s)
+  assistant text
+  reasoning segment
+  tool activity row(s)
+  assistant text / final answer
+  terminal status only when abnormal
+```
+
+The assistant response block is the primary visual unit. Reasoning and tools are supporting activity within that block. This preserves real-time chronology without promoting every event to a peer chat message.
+
+Iteration boundaries are internal timeline metadata. They MAY affect grouping, diagnostics, or test fixtures, but they SHALL NOT render visible user-facing labels such as "iteration 2" in the default chat UI.
+
 ### D7. Tool Step Display
 
-Tool calls render as compact steps, not full message cards. A `ToolStepNode` carries:
+Tool calls render as compact assistant-activity rows, not full message cards and not Codex CLI log lines. A `ToolStepNode` carries:
 
 - tool name and semantic category
 - human-readable title
@@ -150,7 +172,7 @@ Small output is defined by display policy, not by context-projection policy:
 - estimated display tokens <= 2,000
 - no known binary payload
 
-When all small-output thresholds are satisfied, the display node SHOULD include an inline preview sufficient for replay without an extra API fetch. When any threshold is exceeded, the display node MAY include a bounded summary plus a detail reference.
+When all small-output thresholds are satisfied, the display node SHOULD include inline data sufficient for replay without an extra API fetch. The default chat UI SHOULD keep that output collapsed or summarized unless it is essential user-facing result content; expansion reveals the full inline preview. When any threshold is exceeded, the display node MAY include a bounded summary plus a detail reference.
 
 The detail reference reuses the session-scoped `ToolOutputHandle` and `ToolOutputAsset` system introduced by the `tool-output-assets` change (already in flight). The timeline UI does not define its own handle scheme or output backend. The UI detail endpoint is a read-only, UI-authorized view over those assets; the existing agent-facing recall tools (`output_read`, `output_search`, `output_tail`, `output_summary`) remain the model-context path and are unchanged here. The display-side small-output policy below is independent of the model-context projection policy: display decides what is inline in the transcript, projection decides what the model sees, and the two policies are deliberately separate.
 
@@ -163,6 +185,20 @@ Assistant text streaming coalesces frequent deltas into stable text nodes. The U
 Final replay should show the same assistant text content and node boundaries as the completed live turn, except that typing animation does not need to be replayed.
 
 Text event payloads must identify the append target (`node_id` or equivalent) and carry the exact text delta or snapshot content required for replay. Buffered text must be flushed before any subsequent visible non-text event is appended, including tool start/result, reasoning, approval, iteration boundary, terminal status, and turn end. Empty text or reasoning deltas are ignored unless they intentionally update metadata.
+
+Text nodes must not merge across visible assistant-response activity boundaries unless the event explicitly targets the same visible text segment. In normal streaming, text before a tool/activity segment and text after that segment are separate assistant text segments inside the same assistant response block, preserving chronology while keeping the answer visually coherent.
+
+### D8a. Reasoning Segment Display
+
+Reasoning is real-time process context, not a single global "thinking" panel and not a primary assistant answer. The UI SHALL preserve reasoning at the timeline position where it occurred:
+
+- consecutive reasoning deltas MAY coalesce into one reasoning segment;
+- a visible boundary such as tool start/result, approval, assistant text, terminal status, or turn end closes the active reasoning segment;
+- later reasoning creates a new segment at its later timeline position;
+- active reasoning shows a subtle live row or collapsed panel so the user can see that thinking is happening in real time;
+- completed reasoning is visually secondary and collapsed by default, but expandable in place.
+
+This avoids both extremes: it does not flatten reasoning into a CLI log, and it does not move all reasoning to a single top-level container that would scramble the perceived timeline.
 
 ### D9. Timeline Append And Broadcast Ordering
 
@@ -243,15 +279,17 @@ TurnDisplayNode[] -> node-specific renderers
 
 ## UI Direction
 
-The target is a Codex-like transcript:
+The target is a Codex App / ChatGPT-like assistant response stream:
 
-- assistant text is the primary narrative;
-- tool calls are compact, aligned, and scannable;
-- running state uses subtle motion and status text, not large tinted blocks;
-- tool details are available but collapsed unless they matter;
-- consecutive low-value tool steps can group under a concise summary;
-- reasoning is present but visually secondary and collapsed by default after completion;
-- history replay looks like the completed live transcript, not a reconstructed approximation.
+- user messages and assistant responses are the primary message units;
+- assistant text is the primary narrative inside an assistant response;
+- reasoning appears in place as subtle real-time thinking segments, collapsed or visually secondary after completion;
+- tool calls appear in place as compact assistant activity rows, not as peer messages and not as a terminal log;
+- tool details are available but collapsed unless the user expands them or the output is the user-facing result;
+- consecutive low-value tool steps can group under a concise activity summary inside the assistant response;
+- iteration boundaries are not shown as user-facing labels in the default UI;
+- terminal status is visible only for abnormal or diagnostically important endings;
+- history replay looks like the completed live assistant response, not a reconstructed approximation.
 
 ## Quality Strategy
 

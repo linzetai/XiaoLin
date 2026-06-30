@@ -7,7 +7,6 @@ import type { ChatMeta, ChatUsage, GoalData, StreamItem, SubAgentRunUI, QueuedMe
 const EMPTY_SUB_AGENT_RUNS: Record<string, SubAgentRunUI> = {};
 const EMPTY_QUEUE: QueuedMessage[] = [];
 const EMPTY_SEGMENTS: ChatStreamSegment[] = [];
-const EMPTY_MESSAGE_SEGMENTS: Record<number, ChatStreamSegment[]> = {};
 
 export function useActiveChatId(): string {
   return useChatMetaStore((s) => s.activeChatId);
@@ -41,10 +40,6 @@ export function useChatSubAgentRuns(chatId: string): Record<string, SubAgentRunU
 
 export function useChatLastSegments(chatId: string): ChatStreamSegment[] {
   return useStreamStore((s) => s.lastSegments[chatId] ?? EMPTY_SEGMENTS);
-}
-
-export function useChatMessageSegments(chatId: string): Record<number, ChatStreamSegment[]> {
-  return useStreamStore((s) => s.messageSegments[chatId] ?? EMPTY_MESSAGE_SEGMENTS);
 }
 
 export function useChatQueue(chatId: string): QueuedMessage[] {

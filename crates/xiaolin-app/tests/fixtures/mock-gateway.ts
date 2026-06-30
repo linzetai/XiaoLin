@@ -36,10 +36,10 @@ function buildRpcHandlers(): string {
           return { id, type: "agents", data: { agents: __MOCK_AGENTS__ } };
 
         case "sessions.list":
-          return { id, type: "sessions.list", data: { sessions: __MOCK_SESSIONS__ } };
+          return { id, type: "sessions.list", data: { sessions: window.__MOCK_SESSIONS_OVERRIDE__ || __MOCK_SESSIONS__ } };
 
         case "sessions.get":
-          return { id, type: "sessions.get", data: __MOCK_SESSIONS__.find(s => s.id === params.sessionId) || null };
+          return { id, type: "sessions.get", data: (window.__MOCK_SESSIONS_OVERRIDE__ || __MOCK_SESSIONS__).find(s => s.id === params.sessionId) || null };
 
         case "sessions.messages":
           return { id, type: "sessions.messages", data: { messages: window.__MOCK_MESSAGES_OVERRIDE__ || __MOCK_MESSAGES__ } };
@@ -190,13 +190,65 @@ async function setupApiRoutes(page: Page) {
     }),
   );
 
-  await page.route("**/api/**", (route: Route) =>
-    route.fulfill({
+  await page.route("**/api/**", async (route: Route) => {
+    const url = new URL(route.request().url());
+    const displayNodesMatch = url.pathname.match(/\/api\/v1\/sessions\/([^/]+)\/display-nodes$/);
+    if (displayNodesMatch) {
+      const sessionId = decodeURIComponent(displayNodesMatch[1]);
+      const nodes = await route.request().frame().page().evaluate((sid) => {
+        const bySession = (window as any).__MOCK_TIMELINE_NODES_BY_SESSION__;
+        if (bySession && Object.prototype.hasOwnProperty.call(bySession, sid)) {
+          return bySession[sid];
+        }
+        return (window as any).__MOCK_TIMELINE_NODES_OVERRIDE__ ?? [];
+      }, sessionId);
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ session_id: sessionId, nodes, count: nodes.length }),
+      });
+    }
+
+    const maxSeqMatch = url.pathname.match(/\/api\/v1\/sessions\/([^/]+)\/timeline\/max_seq$/);
+    if (maxSeqMatch) {
+      const sessionId = decodeURIComponent(maxSeqMatch[1]);
+      const maxSeq = await route.request().frame().page().evaluate((sid) => {
+        const bySession = (window as any).__MOCK_TIMELINE_MAX_SEQ_BY_SESSION__;
+        if (bySession && Object.prototype.hasOwnProperty.call(bySession, sid)) {
+          return bySession[sid];
+        }
+        return null;
+      }, sessionId);
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ session_id: sessionId, max_seq: maxSeq }),
+      });
+    }
+
+    const timelineMatch = url.pathname.match(/\/api\/v1\/sessions\/([^/]+)\/timeline$/);
+    if (timelineMatch) {
+      const sessionId = decodeURIComponent(timelineMatch[1]);
+      const events = await route.request().frame().page().evaluate((sid) => {
+        const bySession = (window as any).__MOCK_TIMELINE_EVENTS_BY_SESSION__;
+        if (bySession && Object.prototype.hasOwnProperty.call(bySession, sid)) {
+          return bySession[sid];
+        }
+        return [];
+      }, sessionId);
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ session_id: sessionId, events, count: events.length }),
+      });
+    }
+
+    return route.fulfill({
       status: 200,
       contentType: "application/json",
       body: "{}",
-    }),
-  );
+    });
+  });
 }
 
 export const test = base.extend<{ mockGateway: void }>({

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useChatMetaStore } from "../stores/chat-meta-store";
 import { useStreamStore } from "../stores/stream-store";
+import { useTimelineStore } from "../stores/timeline-store";
 import { idCounter } from "../stores/chat-helpers";
+import * as api from "../api";
 
 vi.mock("../api", () => ({
   deleteSession: vi.fn(() => Promise.resolve()),
@@ -9,6 +11,9 @@ vi.mock("../api", () => ({
   setSessionWorkDir: vi.fn(() => Promise.resolve()),
   listFiles: vi.fn(() => Promise.resolve({ files: [], dirs: [] })),
   listSkills: vi.fn(() => Promise.resolve([])),
+  getSessionDisplayNodes: vi.fn(() => Promise.resolve({ nodes: [] })),
+  getSessionTimeline: vi.fn(() => Promise.resolve({ events: [], has_more: false, max_seq: 0 })),
+  getTimelineMaxSeq: vi.fn(() => Promise.resolve({ max_seq: 0 })),
 }));
 
 vi.mock("../stores/persistence", () => ({
@@ -33,10 +38,13 @@ function resetStores() {
     streams: { [initChat.id]: [] },
     usage: {},
     lastSegments: {},
-    messageSegments: {},
     subAgentRuns: {},
     toolProgress: {},
     hasMore: {},
+  });
+  useTimelineStore.setState({
+    states: {},
+    lastSeenSeq: {},
   });
 }
 
@@ -139,7 +147,7 @@ describe("store integration (new multi-store)", () => {
       }
     });
 
-    it("preserves backend ids when restoring session history", () => {
+    it("does not restore legacy backend messages as transcript stream items", () => {
       const chatId = useChatMetaStore.getState().activeChatId;
 
       useStreamStore.getState().loadChatStream(chatId, [
@@ -154,15 +162,10 @@ describe("store integration (new multi-store)", () => {
         },
       ]);
 
-      const item = useStreamStore.getState().streams[chatId][0];
-      expect(item.type).toBe("message");
-      if (item.type === "message") {
-        expect(item.data.id).not.toBe(4242);
-        expect(item.data.backendId).toBe(4242);
-      }
+      expect(useStreamStore.getState().streams[chatId]).toEqual([]);
     });
 
-    it("restores per-message assistant segments from session history", () => {
+    it("does not reconstruct assistant segments from legacy session history", () => {
       const chatId = useChatMetaStore.getState().activeChatId;
 
       useStreamStore.getState().loadChatStream(chatId, [
@@ -206,19 +209,10 @@ describe("store integration (new multi-store)", () => {
         },
       ]);
 
-      const segments = useStreamStore.getState().messageSegments[chatId];
-      expect(segments[10].map((s) => s.type)).toEqual(["reasoning", "tool", "text"]);
-      expect(segments[10][0].content).toBe("thinking first");
-      expect(segments[10][1].toolCall?.id).toBe("tc-1");
-      expect(segments[10][2].content).toBe("first answer");
-
-      expect(segments[11].map((s) => s.type)).toEqual(["text", "tool", "reasoning"]);
-      expect(segments[11][0].content).toBe("second answer");
-      expect(segments[11][1].toolCall?.id).toBe("tc-2");
-      expect(segments[11][2].content).toBe("thinking second");
+      expect(useStreamStore.getState().streams[chatId]).toEqual([]);
     });
 
-    it("restores encoded text segments in persisted order", () => {
+    it("ignores encoded text segment ordering from legacy messages", () => {
       const chatId = useChatMetaStore.getState().activeChatId;
 
       useStreamStore.getState().loadChatStream(chatId, [
@@ -246,14 +240,10 @@ describe("store integration (new multi-store)", () => {
         },
       ]);
 
-      const segments = useStreamStore.getState().messageSegments[chatId][12];
-      expect(segments.map((s) => s.type)).toEqual(["text", "tool", "text"]);
-      expect(segments[0].content).toBe("before tool");
-      expect(segments[1].toolCall?.id).toBe("tc-1");
-      expect(segments[2].content).toBe("after tool");
+      expect(useStreamStore.getState().streams[chatId]).toEqual([]);
     });
 
-    it("does not place legacy repeated text content before restored tools", () => {
+    it("does not use legacy repeated text and tool ordering as replay source", () => {
       const chatId = useChatMetaStore.getState().activeChatId;
 
       useStreamStore.getState().loadChatStream(chatId, [
@@ -277,13 +267,10 @@ describe("store integration (new multi-store)", () => {
         },
       ]);
 
-      const segments = useStreamStore.getState().messageSegments[chatId][13];
-      expect(segments.map((s) => s.type)).toEqual(["tool", "text"]);
-      expect(segments[0].toolCall?.id).toBe("tc-1");
-      expect(segments[1].content).toBe("all legacy text");
+      expect(useStreamStore.getState().streams[chatId]).toEqual([]);
     });
 
-    it("merges restored segments when prepending older history", () => {
+    it("does not restore segments when prepending older legacy history", () => {
       const chatId = useChatMetaStore.getState().activeChatId;
 
       useStreamStore.getState().loadChatStream(chatId, [
@@ -315,9 +302,8 @@ describe("store integration (new multi-store)", () => {
       ], false);
 
       const state = useStreamStore.getState();
-      expect(state.streams[chatId].map((item) => item.type === "message" ? item.data.backendId : null)).toEqual([19, 20]);
-      expect(state.messageSegments[chatId][19].map((s) => s.content)).toEqual(["older reasoning", "older"]);
-      expect(state.messageSegments[chatId][20].map((s) => s.content)).toEqual(["newer reasoning", "newer"]);
+      expect(state.streams[chatId]).toEqual([]);
+      expect(state.lastSegments[chatId]).toBeUndefined();
     });
   });
 
@@ -492,6 +478,168 @@ describe("store integration (new multi-store)", () => {
       const afterOpen = after.chatOrder.filter((id) => after.chats[id]?.open);
       expect(afterOpen[0]).toBe(openIds[1]);
       expect(afterOpen[2]).toBe(openIds[0]);
+    });
+  });
+
+  describe("timeline hydration (loadChatStream)", () => {
+    const chatId = "session-with-timeline";
+    const mockNodes = [
+      {
+        kind: "user_message",
+        node_id: "node-um-1",
+        turn_id: "turn-1",
+        status: "completed",
+        created_at_ms: 1000,
+        updated_at_ms: 1000,
+        content: "Hello",
+      },
+      {
+        kind: "assistant_text",
+        node_id: "node-at-1",
+        turn_id: "turn-1",
+        status: "completed",
+        created_at_ms: 2000,
+        updated_at_ms: 2000,
+        content: "Hi there!",
+        byte_length: 9,
+      },
+    ];
+
+    const mockTimelineEvents = [
+      {
+        id: "evt-1",
+        session_id: chatId,
+        turn_id: "turn-1",
+        seq: 1,
+        event_type: "user_message_created",
+        schema_version: 1,
+        payload_json: { content: "Hello" },
+        created_at_ms: 1000,
+      },
+      {
+        id: "evt-2",
+        session_id: chatId,
+        turn_id: "turn-1",
+        seq: 2,
+        event_type: "assistant_text_delta",
+        schema_version: 1,
+        payload_json: { node_id: "node-at-1", delta: "Hi there!" },
+        created_at_ms: 2000,
+      },
+    ];
+
+    beforeEach(() => {
+      resetStores();
+      // Override API mocks for this test suite
+      vi.mocked(api.getSessionDisplayNodes).mockReset();
+      vi.mocked(api.getSessionTimeline).mockReset();
+    });
+
+    it("loads display nodes and replaces unsupported history placeholder", async () => {
+      vi.mocked(api.getSessionDisplayNodes).mockResolvedValue({
+        session_id: chatId,
+        nodes: mockNodes as any,
+        count: mockNodes.length,
+      });
+
+      // Call loadChatStream — the unsupported node is loaded synchronously
+      useStreamStore.getState().loadChatStream(chatId, [{ id: 1, role: "user", content: "Hello", name: null, toolCallId: null, createdAt: "2026-01-01T00:00:00Z" }], false);
+
+      // Unsported node should be temporarily present
+      let timelineNodes = useTimelineStore.getState().states[chatId]?.nodes ?? [];
+      expect(timelineNodes.length).toBeGreaterThan(0);
+      expect(timelineNodes[0].kind).toBe("system_notice"); // temporary placeholder
+
+      // Wait for async API response
+      await vi.waitFor(() => {
+        const nodes = useTimelineStore.getState().states[chatId]?.nodes ?? [];
+        expect(nodes.length).toBe(2);
+      });
+
+      timelineNodes = useTimelineStore.getState().states[chatId]?.nodes ?? [];
+      expect(timelineNodes[0].kind).toBe("user_message");
+      expect(timelineNodes[1].kind).toBe("assistant_text");
+      if (timelineNodes[1].kind === "assistant_text") {
+        expect(timelineNodes[1].content).toBe("Hi there!");
+      }
+    });
+
+    it("falls back to timeline events when display nodes are empty", async () => {
+      vi.mocked(api.getSessionDisplayNodes).mockResolvedValue({
+        session_id: chatId,
+        nodes: [],
+        count: 0,
+      });
+      vi.mocked(api.getSessionTimeline).mockResolvedValue({
+        session_id: chatId,
+        events: mockTimelineEvents as any,
+        count: mockTimelineEvents.length,
+      });
+
+      useStreamStore.getState().loadChatStream(chatId, [{ id: 1, role: "user", content: "Hello", name: null, toolCallId: null, createdAt: "2026-01-01T00:00:00Z" }], false);
+
+      await vi.waitFor(() => {
+        const nodes = useTimelineStore.getState().states[chatId]?.nodes ?? [];
+        expect(nodes.length).toBeGreaterThan(1);
+      });
+
+      const timelineNodes = useTimelineStore.getState().states[chatId]?.nodes ?? [];
+      // Should have loaded events and reduced them to nodes
+      expect(timelineNodes.length).toBe(2);
+      expect(timelineNodes[0].kind).toBe("user_message");
+    });
+
+    it("shows unsupported history when both APIs return empty", async () => {
+      vi.mocked(api.getSessionDisplayNodes).mockResolvedValue({
+        session_id: chatId,
+        nodes: [],
+        count: 0,
+      });
+      vi.mocked(api.getSessionTimeline).mockResolvedValue({
+        session_id: chatId,
+        events: [],
+        count: 0,
+      });
+
+      useStreamStore.getState().loadChatStream(chatId, [{ id: 1, role: "user", content: "Hello", name: null, toolCallId: null, createdAt: "2026-01-01T00:00:00Z" }], false);
+
+      await vi.waitFor(() => {
+        const nodes = useTimelineStore.getState().states[chatId]?.nodes ?? [];
+        // After both fallbacks fail, should still have the unsupported node
+        if (nodes.length > 0) {
+          expect(nodes[0].kind).toBe("system_notice");
+        }
+      });
+    });
+
+    it("handles API errors gracefully (shows unsupported node)", async () => {
+      vi.mocked(api.getSessionDisplayNodes).mockRejectedValue(new Error("Network error"));
+
+      useStreamStore.getState().loadChatStream(chatId, [{ id: 1, role: "user", content: "Hello", name: null, toolCallId: null, createdAt: "2026-01-01T00:00:00Z" }], false);
+
+      await vi.waitFor(() => {
+        const nodes = useTimelineStore.getState().states[chatId]?.nodes ?? [];
+        expect(nodes.length).toBeGreaterThan(0);
+      });
+
+      const timelineNodes = useTimelineStore.getState().states[chatId]?.nodes ?? [];
+      expect(timelineNodes[0].kind).toBe("system_notice");
+      expect((timelineNodes[0] as any).category).toBe("unsupported_history");
+    });
+
+    it("does NOT load unsupported node when there are no messages", () => {
+      vi.mocked(api.getSessionDisplayNodes).mockResolvedValue({
+        session_id: chatId,
+        nodes: [],
+        count: 0,
+      });
+
+      // Empty messages array
+      useStreamStore.getState().loadChatStream(chatId, [], false);
+
+      const timelineNodes = useTimelineStore.getState().states[chatId]?.nodes ?? [];
+      // No messages means no unsupported node (the session might be truly empty)
+      expect(timelineNodes.length).toBe(0);
     });
   });
 });

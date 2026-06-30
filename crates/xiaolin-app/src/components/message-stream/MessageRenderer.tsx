@@ -367,7 +367,7 @@ function SystemMsg({ msg }: { msg: ChatMessage }) {
       className="pb-2 flex items-start gap-2 text-[13px]"
       style={{
         color: isError ? "var(--red)" : "var(--fill-tertiary)",
-        overflowWrap: "anywhere",
+        overflowWrap: "break-word",
       }}
     >
       <span

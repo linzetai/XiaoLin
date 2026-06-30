@@ -1,15 +1,16 @@
 ## ADDED Requirements
 
-### Requirement: Compact tool step nodes
-Tool calls SHALL render as compact timeline step nodes with semantic status and low visual noise.
+### Requirement: Assistant activity tool rows
+Tool calls SHALL render as compact assistant-response activity rows with semantic status and low visual noise.
 
 #### Scenario: Tool starts
 - **WHEN** a tool call starts
-- **THEN** the UI SHALL render a compact running step with tool title, status indicator, and primary target metadata when available
+- **THEN** the UI SHALL render a compact running activity row inside the current assistant response with tool title, status indicator, and primary target metadata when available
+- **AND** it SHALL NOT render as a peer chat message or a terminal-style log block
 
 #### Scenario: Tool finishes
 - **WHEN** a tool call succeeds or fails
-- **THEN** the UI SHALL update the same step node with final status, duration, and result summary
+- **THEN** the UI SHALL update the same activity row with final status, duration, and result summary
 
 ### Requirement: Semantic tool titles
 Tool display nodes SHALL provide human-readable titles derived from tool name and arguments without exposing raw JSON by default.
@@ -29,17 +30,18 @@ Tool output that satisfies the display small-output policy SHALL be fully replay
 - **WHEN** tool output is <= 8,000 UTF-8 bytes, <= 200 lines, <= 2,000 estimated display tokens, and is not binary
 - **THEN** the tool display node SHALL include the complete text output or an equivalent complete structured representation inline
 - **AND** any summary or preview SHALL be additional display metadata, not a replacement for the inline small output
+- **AND** the default assistant-response UI MAY keep that inline output collapsed so tool output does not overpower the assistant narrative
 
 #### Scenario: Small output does not require extra fetch
 - **WHEN** a historical transcript containing only small tool outputs is opened
-- **THEN** the UI SHALL NOT need to call a tool detail API merely to show the default transcript
+- **THEN** the UI SHALL NOT need to call a tool detail API merely to show the default assistant response
 
 ### Requirement: Large output lazy details
 Large or structured tool output SHALL be summarized in the transcript and fetched only when the user expands details.
 
 #### Scenario: Large output summary
 - **WHEN** tool output exceeds any small-output threshold
-- **THEN** the default step SHALL show status, size metadata when available, and a bounded summary
+- **THEN** the default activity row SHALL show status, size metadata when available, and a bounded summary
 - **AND** it SHALL provide an expansion affordance when full details are available
 
 #### Scenario: Detail expansion
@@ -57,7 +59,7 @@ When the product enables tool grouping, consecutive low-value or repetitive tool
 
 #### Scenario: Repetitive steps are grouped
 - **WHEN** multiple adjacent tool steps are eligible for grouping
-- **THEN** the UI SHALL render a compact group summary
+- **THEN** the UI SHALL render a compact activity group summary inside the assistant response
 - **AND** expanding the group SHALL reveal the individual step nodes in original order
 
 ### Requirement: Visual regression coverage

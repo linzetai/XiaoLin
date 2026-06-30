@@ -1708,4 +1708,243 @@ mod tests {
             _ => panic!("expected second text node"),
         }
     }
+
+    // ── Coverage: edge cases ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn materialize_empty_session_returns_empty_vec() {
+        let store = make_store().await;
+        let nodes = store.materialize_display_nodes("nobody").await.unwrap();
+        assert!(nodes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn materialize_for_nonexistent_turn_returns_empty() {
+        let store = make_store().await;
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("a"),
+                TimelineEventType::UserMessageCreated,
+                &serde_json::json!({"content": "t1"}),
+                1000,
+            )
+            .await
+            .unwrap();
+        let nodes = store
+            .materialize_display_nodes_for_turn("s1", "nonexistent")
+            .await
+            .unwrap();
+        assert!(nodes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn count_returns_correct_value() {
+        let store = make_store().await;
+        assert_eq!(store.count("s1").await.unwrap(), 0);
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("a"),
+                TimelineEventType::SystemNotice,
+                &serde_json::json!({}),
+                1000,
+            )
+            .await
+            .unwrap();
+        assert_eq!(store.count("s1").await.unwrap(), 1);
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("b"),
+                TimelineEventType::SystemNotice,
+                &serde_json::json!({}),
+                2000,
+            )
+            .await
+            .unwrap();
+        assert_eq!(store.count("s1").await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn materialize_reasoning_and_approval_nodes() {
+        let store = make_store().await;
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("r"),
+                TimelineEventType::ReasoningSnapshot,
+                &serde_json::json!({"node_id": "r1", "content": "Let me think."}),
+                1000,
+            )
+            .await
+            .unwrap();
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("ap-req"),
+                TimelineEventType::ApprovalRequested,
+                &serde_json::json!({"approval_id": "a1", "action": "Run", "reason": "Needs check", "risk_level": "low"}),
+                2000,
+            )
+            .await
+            .unwrap();
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("ap-res"),
+                TimelineEventType::ApprovalResolved,
+                &serde_json::json!({"approval_id": "a1", "decision": "allow_once", "source": "user"}),
+                3000,
+            )
+            .await
+            .unwrap();
+
+        let nodes = store.materialize_display_nodes("s1").await.unwrap();
+        assert_eq!(nodes.len(), 2); // reasoning + approval (merged)
+        assert!(matches!(&nodes[0], TurnDisplayNode::Reasoning(_)));
+        assert!(matches!(&nodes[1], TurnDisplayNode::Approval(_)));
+    }
+
+    #[tokio::test]
+    async fn materialize_system_notice_node() {
+        let store = make_store().await;
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("sn"),
+                TimelineEventType::SystemNotice,
+                &serde_json::json!({"message": "Warning!", "level": "warning", "category": "system"}),
+                1000,
+            )
+            .await
+            .unwrap();
+
+        let nodes = store.materialize_display_nodes("s1").await.unwrap();
+        assert_eq!(nodes.len(), 1);
+        if let TurnDisplayNode::SystemNotice(n) = &nodes[0] {
+            assert_eq!(n.message, "Warning!");
+            assert_eq!(n.level.as_deref(), Some("warning"));
+        } else {
+            panic!("expected SystemNotice");
+        }
+    }
+
+    #[tokio::test]
+    async fn pagination_respects_clamped_limit() {
+        let store = make_store().await;
+        for i in 0..3 {
+            store
+                .append(
+                    "s1", "t1",
+                    &TimelineEventId::new(format!("e{i}")),
+                    TimelineEventType::SystemNotice,
+                    &serde_json::json!({"i": i}),
+                    1000 + i * 100,
+                )
+                .await
+                .unwrap();
+        }
+        // Clamp to min 1 — limit=0 should clamp to 1
+        let page = store.query_by_session("s1", None, Some(0)).await.unwrap();
+        assert_eq!(page.len(), 1);
+        // Clamp to max 1000 — limit=2000 should clamp to 1000
+        let page = store.query_by_session("s1", None, Some(2000)).await.unwrap();
+        assert_eq!(page.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn query_by_session_after_zero_is_same_as_none() {
+        let store = make_store().await;
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("e1"),
+                TimelineEventType::SystemNotice,
+                &serde_json::json!({}),
+                1000,
+            )
+            .await
+            .unwrap();
+        // after_seq=None → uses 0
+        let p1 = store.query_by_session("s1", None, Some(10)).await.unwrap();
+        // after_seq=Some(0) → same result
+        let p2 = store.query_by_session("s1", Some(0), Some(10)).await.unwrap();
+        assert_eq!(p1.len(), p2.len());
+    }
+
+    #[tokio::test]
+    async fn max_seq_returns_none_when_no_events() {
+        let store = make_store().await;
+        assert_eq!(store.max_seq("nobody").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn materialize_approval_request_resolved_merges_into_one_node() {
+        let store = make_store().await;
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("req"),
+                TimelineEventType::ApprovalRequested,
+                &serde_json::json!({"approval_id": "apr-1", "action": "ShellExec", "reason": "Run command"}),
+                1000,
+            )
+            .await
+            .unwrap();
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("res"),
+                TimelineEventType::ApprovalResolved,
+                &serde_json::json!({"approval_id": "apr-1", "decision": "allow_once", "source": "auto"}),
+                2000,
+            )
+            .await
+            .unwrap();
+
+        let nodes = store.materialize_display_nodes("s1").await.unwrap();
+        // Request + resolved should merge into a single Approval node
+        let approvals: Vec<_> = nodes.iter().filter(|n| matches!(n, TurnDisplayNode::Approval(_))).collect();
+        assert_eq!(approvals.len(), 1);
+        if let TurnDisplayNode::Approval(a) = &approvals[0] {
+            assert_eq!(a.decision.as_deref(), Some("allow_once"));
+            assert_eq!(a.decision_source.as_deref(), Some("auto"));
+        }
+    }
+
+    #[tokio::test]
+    async fn materialize_turn_finished_marks_pending_nodes_as_completed() {
+        let store = make_store().await;
+        // Start with a text delta (creates pending node)
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("txt"),
+                TimelineEventType::AssistantTextDelta,
+                &serde_json::json!({"node_id": "n1", "delta": "Streaming..."}),
+                1000,
+            )
+            .await
+            .unwrap();
+        // End the turn normally
+        store
+            .append(
+                "s1", "t1",
+                &TimelineEventId::new("end"),
+                TimelineEventType::TurnFinished,
+                &serde_json::json!({"end_reason": "completed"}),
+                2000,
+            )
+            .await
+            .unwrap();
+
+        let nodes = store.materialize_display_nodes("s1").await.unwrap();
+        assert_eq!(nodes.len(), 1); // only text, no TurnStatus (normal completion)
+        if let TurnDisplayNode::AssistantText(n) = &nodes[0] {
+            assert_eq!(n.status, NodeStatus::Completed);
+        } else {
+            panic!("expected AssistantText");
+        }
+    }
 }

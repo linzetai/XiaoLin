@@ -712,7 +712,7 @@
     line-height: 1.8;
     color: var(--fill-primary);
     word-wrap: break-word;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
     min-width: 0;
     letter-spacing: -0.01em;
     hanging-punctuation: first allow-end;
@@ -1037,6 +1037,32 @@
 /* ━━━ Message Stream ━━━ */
 .m-prev:hover span { color: var(--fill-secondary) !important; }
 
+/* ━━━ Turn blocks (Codex/ChatGPT-style message grouping) ━━━ */
+.turn-block {
+  container-type: inline-size;
+}
+
+/* Assistant response block — quiet container; activity rows carry emphasis. */
+.assistant-response {
+  max-width: var(--content-max-w);
+}
+
+/* Activity rows (tool steps, reasoning) within assistant response —
+   slightly indented to distinguish from primary narrative text. */
+.assistant-response [data-activity-row] {
+  margin-left: 0;
+  max-width: 100%;
+}
+
+/* ━━━ Diagnostics — iteration boundary labels ━━━ */
+/* Hidden by default; shown only when a parent has data-diagnostics="true" */
+.iteration-label {
+  display: none;
+}
+[data-diagnostics="true"] .iteration-label {
+  display: inline;
+}
+
 /* ━━━ Streaming Performance ━━━ */
 [data-streaming="true"] .markdown-body,
 [data-streaming="true"] .markdown-body * {
@@ -1140,7 +1166,7 @@
     color: var(--fill-primary);
     white-space: pre-wrap;
     word-wrap: break-word;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
     overflow: hidden;
     max-height: 240px;
   }

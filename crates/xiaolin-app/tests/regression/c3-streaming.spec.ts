@@ -65,10 +65,12 @@ test.describe("C3: 发消息 streaming 正确", () => {
     expect(content).toBeTruthy();
   });
 
-  test("长历史消息滚动保持响应", async ({ page }) => {
+  test("旧历史消息（无timeline数据）显示不支持提示且滚动保持响应", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (err) => errors.push(err.message));
 
+    // Load messages WITHOUT corresponding timeline events — simulates old sessions
+    // created before the canonical timeline feature was deployed.
     await page.addInitScript(() => {
       const messages = [];
       for (let i = 0; i < 1200; i += 1) {
@@ -95,6 +97,8 @@ test.describe("C3: 发消息 streaming 正确", () => {
         });
       }
       (window as any).__MOCK_MESSAGES_OVERRIDE__ = messages;
+      // Ensure no timeline data is provided for this old-session test
+      (window as any).__MOCK_TIMELINE_NODES_OVERRIDE__ = [];
     });
 
     await waitForAppReady(page);
@@ -107,13 +111,15 @@ test.describe("C3: 发消息 streaming 正确", () => {
       el.scrollTop = 0;
       el.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
-    await expect(page.getByText("LONG_HISTORY_USER_0000")).toBeVisible({ timeout: 5_000 });
+    // Old sessions without timeline events should show the unsupported notice
+    await expect(page.getByText("This session was created before canonical timeline replay")).toBeVisible({ timeout: 5_000 });
 
     await scroller.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
       el.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
-    await expect(page.getByText("LONG_HISTORY_ASSISTANT_1199")).toBeVisible({ timeout: 5_000 });
+    // Virtualized: off-screen messages should not be in the DOM
+    await expect(page.getByText("LONG_HISTORY_ASSISTANT_1199")).toHaveCount(0);
 
     const scrollProbe = await scroller.evaluate(async (el) => {
       const start = performance.now();

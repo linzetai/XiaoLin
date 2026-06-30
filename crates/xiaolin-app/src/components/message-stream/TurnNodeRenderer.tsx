@@ -3,11 +3,9 @@
 // Each TurnDisplayNode variant gets its own view component. Both live
 // streaming and history replay use the same renderer (Decision D3).
 //
-// This component coexists with the legacy MessageRendererRow during the
-// Phase 5 migration. Once Phase 7 removes the legacy path, this becomes
-// the sole transcript renderer.
+// This is the canonical transcript renderer for both live and replayed turns.
 
-import { memo, lazy, Suspense } from "react";
+import { memo, lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   TurnDisplayNode,
@@ -23,9 +21,8 @@ import type {
 } from "../../lib/timeline/types";
 
 import { UserInput } from "./UserInput";
-import { StepIndicator } from "./StepIndicator";
-import { StepGroup } from "./StepGroup";
 import { ReasoningBlock } from "./ReasoningBlock";
+import { ToolStepView } from "./ToolStepView";
 
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((m) => ({ default: m.MarkdownContent })),
@@ -68,7 +65,10 @@ const AssistantTextNodeView = memo(function AssistantTextNodeView({
   const isActive = isStreaming && node.status === "pending";
 
   return (
-    <div className="pb-1">
+    <div
+      className="min-w-0 w-full max-w-full py-1.5 text-[14px] leading-7"
+      style={{ color: "var(--fill-primary)" }}
+    >
       {isActive ? (
         <StreamingMarkdown content={node.content} />
       ) : (
@@ -125,42 +125,13 @@ const ReasoningNodeView = memo(function ReasoningNodeView({
 
 const ToolStepNodeView = memo(function ToolStepNodeView({
   node,
+  sessionId,
 }: {
   node: ToolStepNode;
+  sessionId?: string;
 }) {
-  const toolCall = {
-    id: node.call_id,
-    name: node.tool_name,
-    status: mapNodeStatusToToolStatus(node.status),
-    args: node.args,
-    result: node.output_preview?.content ?? node.error_message,
-    displayOutput: node.output_preview?.content,
-    duration: node.duration_ms,
-    metadata: node.target
-      ? { target: node.target }
-      : undefined,
-    outputHandle: node.output_detail?.handle,
-    outputSizeClass: node.output_detail?.size_class,
-    outputIsExpandable: node.output_detail?.is_expandable,
-  };
-
-  return <StepIndicator tool={toolCall} />;
+  return <ToolStepView node={node} sessionId={sessionId} />;
 });
-
-function mapNodeStatusToToolStatus(
-  status: string,
-): "running" | "success" | "error" {
-  switch (status) {
-    case "running":
-      return "running";
-    case "failed":
-      return "error";
-    case "cancelled":
-      return "error";
-    default:
-      return "success";
-  }
-}
 
 // ============================================================================
 // ToolGroupNodeView
@@ -168,30 +139,56 @@ function mapNodeStatusToToolStatus(
 
 const ToolGroupNodeView = memo(function ToolGroupNodeView({
   node,
+  sessionId,
 }: {
   node: ToolGroupNode;
+  sessionId?: string;
 }) {
+  const [expanded, setExpanded] = useState(!node.collapsed);
   if (node.steps.length === 0) return null;
 
-  const tools = node.steps.map((step) => ({
-    id: step.call_id,
-    name: step.tool_name,
-    status: mapNodeStatusToToolStatus(step.status),
-    args: step.args,
-    result: step.output_preview?.content ?? step.error_message,
-    displayOutput: step.output_preview?.content,
-    duration: step.duration_ms,
-    metadata: step.target ? { target: step.target } : undefined,
-    outputHandle: step.output_detail?.handle,
-    outputSizeClass: step.output_detail?.size_class,
-    outputIsExpandable: step.output_detail?.is_expandable,
-  }));
+  const failedCount = node.steps.filter((step) => step.status === "failed" || step.status === "cancelled").length;
+  const runningCount = node.steps.filter((step) => step.status === "running").length;
+  const statusText = runningCount > 0
+    ? `${runningCount} running`
+    : failedCount > 0
+      ? `${failedCount} failed`
+      : `${node.step_count} completed`;
 
   return (
-    <StepGroup
-      tools={tools}
-      streaming={node.status === "running"}
-    />
+    <div className="my-0.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors duration-100"
+        style={{ color: "var(--fill-tertiary)" }}
+        aria-expanded={expanded}
+      >
+        <span
+          className="inline-block h-[6px] w-[6px] shrink-0 rounded-full"
+          style={{
+            background: failedCount > 0
+              ? "var(--red)"
+              : runningCount > 0
+                ? "var(--tint)"
+                : "var(--green)",
+          }}
+        />
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+          {node.group_label}
+        </span>
+        <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
+          {statusText}
+        </span>
+      </button>
+      {expanded && (
+        <div className="ml-4 border-l pl-2" style={{ borderColor: "var(--separator)" }}>
+          {node.steps.map((step) => (
+            <ToolStepView key={step.node_id} node={step} sessionId={sessionId} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 });
 
@@ -205,8 +202,8 @@ const ApprovalNodeView = memo(function ApprovalNodeView({
   node: ApprovalNode;
 }) {
   return (
-    <div className="my-1 text-[11px]" style={{ color: "var(--fill-tertiary)" }}>
-      <span className="mr-1">🔒</span>
+    <div className="my-1.5 flex items-center gap-1.5 text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--amber)" }} />
       <span>
         {node.action}:{" "}
         {node.decision
@@ -225,27 +222,24 @@ const ApprovalNodeView = memo(function ApprovalNodeView({
 // ============================================================================
 
 const IterationBoundaryView = memo(function IterationBoundaryView({
-  node: _node,
+  node,
+  showDiagnostics,
 }: {
   node: IterationBoundaryNode;
+  showDiagnostics?: boolean;
 }) {
+  if (!showDiagnostics) return null;
+
   return (
     <div
-      className="flex items-center justify-center gap-1.5 my-3 select-none"
-      style={{ maxHeight: 32 }}
+      className="my-3 flex items-center gap-2 select-none"
+      style={{ color: "var(--fill-quaternary)" }}
+      aria-hidden="true"
     >
-      <span
-        className="inline-block h-[4px] w-[4px] rounded-full"
-        style={{ background: "var(--fill-quaternary)", opacity: 0.5 }}
-      />
-      <span
-        className="inline-block h-[4px] w-[4px] rounded-full"
-        style={{ background: "var(--fill-quaternary)", opacity: 0.5 }}
-      />
-      <span
-        className="inline-block h-[4px] w-[4px] rounded-full"
-        style={{ background: "var(--fill-quaternary)", opacity: 0.5 }}
-      />
+      <span className="h-px flex-1" style={{ background: "var(--separator)" }} />
+      <span className="iteration-label shrink-0 text-[10px] font-medium opacity-50">
+        Iteration {node.iteration}
+      </span>
     </div>
   );
 });
@@ -353,7 +347,7 @@ const SystemNoticeView = memo(function SystemNoticeView({
           : isWarning
             ? "var(--amber)"
             : "var(--fill-tertiary)",
-        overflowWrap: "anywhere",
+        overflowWrap: "break-word",
       }}
     >
       <span
@@ -382,6 +376,8 @@ export interface TurnNodeRendererProps {
   isLive?: boolean;
   /** Session ID for passing to sub-components that need it. */
   sessionId?: string;
+  /** When true, diagnostic-only timeline metadata can be visible. */
+  showDiagnostics?: boolean;
 }
 
 /**
@@ -393,7 +389,8 @@ export interface TurnNodeRendererProps {
 export const TurnNodeRenderer = memo(function TurnNodeRenderer({
   nodes,
   isLive,
-  sessionId: _sessionId,
+  sessionId,
+  showDiagnostics,
 }: TurnNodeRendererProps) {
   if (nodes.length === 0) return null;
 
@@ -404,6 +401,8 @@ export const TurnNodeRenderer = memo(function TurnNodeRenderer({
           key={node.node_id}
           node={node}
           isLive={isLive}
+          sessionId={sessionId}
+          showDiagnostics={showDiagnostics}
         />
       ))}
     </>
@@ -413,41 +412,79 @@ export const TurnNodeRenderer = memo(function TurnNodeRenderer({
 function TurnNodeView({
   node,
   isLive,
+  sessionId,
+  showDiagnostics,
 }: {
   node: TurnDisplayNode;
   isLive?: boolean;
+  sessionId?: string;
+  showDiagnostics?: boolean;
 }) {
   const isStreaming = isLive && node.status === "pending";
-
-  switch (node.kind) {
-    case "user_message":
-      return <UserMessageNodeView node={node} />;
-    case "assistant_text":
-      return (
-        <AssistantTextNodeView
-          node={node}
-          isStreaming={isStreaming}
-        />
-      );
-    case "reasoning":
-      return (
-        <ReasoningNodeView node={node} isStreaming={isStreaming} />
-      );
-    case "tool_step":
-      return <ToolStepNodeView node={node} />;
-    case "tool_group":
-      return <ToolGroupNodeView node={node} />;
-    case "approval":
-      return <ApprovalNodeView node={node} />;
-    case "iteration_boundary":
-      return <IterationBoundaryView node={node} />;
-    case "turn_status":
-      return <TurnStatusView node={node} />;
-    case "system_notice":
-      return <SystemNoticeView node={node} />;
-    default:
-      return null;
+  if (
+    node.kind === "turn_status" &&
+    node.end_reason === "completed" &&
+    node.diagnosis == null &&
+    node.status !== "failed"
+  ) {
+    return null;
   }
+  if (node.kind === "iteration_boundary" && !showDiagnostics) {
+    return null;
+  }
+
+  const isActivity =
+    node.kind === "reasoning" ||
+    node.kind === "tool_step" ||
+    node.kind === "tool_group" ||
+    node.kind === "approval" ||
+    node.kind === "turn_status" ||
+    node.kind === "system_notice";
+
+  const content = (() => {
+    switch (node.kind) {
+      case "user_message":
+        return <UserMessageNodeView node={node} />;
+      case "assistant_text":
+        return (
+          <AssistantTextNodeView
+            node={node}
+            isStreaming={isStreaming}
+          />
+        );
+      case "reasoning":
+        return (
+          <ReasoningNodeView node={node} isStreaming={isStreaming} />
+        );
+      case "tool_step":
+        return <ToolStepNodeView node={node} sessionId={sessionId} />;
+      case "tool_group":
+        return <ToolGroupNodeView node={node} sessionId={sessionId} />;
+      case "approval":
+        return <ApprovalNodeView node={node} />;
+      case "iteration_boundary":
+        return <IterationBoundaryView node={node} showDiagnostics={showDiagnostics} />;
+      case "turn_status":
+        return <TurnStatusView node={node} />;
+      case "system_notice":
+        return <SystemNoticeView node={node} />;
+      default:
+        return null;
+    }
+  })();
+
+  if (content == null) return null;
+
+  return (
+    <div
+      data-timeline-node-kind={node.kind}
+      data-timeline-node-id={node.node_id}
+      data-activity-row={isActivity ? "" : undefined}
+      className="min-w-0 max-w-full"
+    >
+      {content}
+    </div>
+  );
 }
 
 // ============================================================================

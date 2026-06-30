@@ -40,12 +40,9 @@ import { emptyTimelineState } from "./types";
 // Helpers
 // ============================================================================
 
-let _nodeCounter = 0;
-
 /** Generate a stable node id. */
-function nextNodeId(prefix: string): string {
-  _nodeCounter += 1;
-  return `node-${prefix}-${_nodeCounter}-${Date.now().toString(36)}`;
+function nodeIdFromEvent(prefix: string, event: TurnTimelineEvent): string {
+  return `node-${prefix}-${event.id}`;
 }
 
 /** Build a SourceEventTrace from an event. */
@@ -148,7 +145,7 @@ export function reduceTimelineEvent(
       const payload = parsePayload<UserMessageCreatedPayload>(event);
       const nodeId = payload.message_id
         ? `node-um-${payload.message_id}`
-        : nextNodeId("um");
+        : nodeIdFromEvent("um", event);
       const node: UserMessageNode = {
         kind: "user_message",
         node_id: nodeId,
@@ -644,7 +641,7 @@ export function reduceTimelineEvent(
 
     case "compact_boundary": {
       const payload = parsePayload<CompactBoundaryPayload>(event);
-      const nodeId = nextNodeId("cb");
+      const nodeId = nodeIdFromEvent("cb", event);
       const node: SystemNoticeNode = {
         kind: "system_notice",
         node_id: nodeId,
@@ -664,7 +661,7 @@ export function reduceTimelineEvent(
 
     case "system_notice": {
       const payload = parsePayload<SystemNoticePayload>(event);
-      const nodeId = nextNodeId("sn");
+      const nodeId = nodeIdFromEvent("sn", event);
       const node: SystemNoticeNode = {
         kind: "system_notice",
         node_id: nodeId,

@@ -16,7 +16,7 @@ interface ReasoningBlockProps {
 
 export function ReasoningBlock({ content, isStreaming, autoCollapse }: ReasoningBlockProps) {
   const { t } = useTranslation("chat");
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
 
@@ -70,9 +70,9 @@ export function ReasoningBlock({ content, isStreaming, autoCollapse }: Reasoning
 
   return (
     <div
-      className="my-1 pl-3 relative"
+      className="my-1.5 pl-3 relative"
       style={{
-        borderLeft: `2px solid ${isActive ? "color-mix(in srgb, var(--tint) 45%, var(--fill-quaternary))" : "color-mix(in srgb, var(--fill-quaternary) 50%, transparent)"}`,
+        borderLeft: `2px solid ${isActive ? "color-mix(in srgb, var(--tint) 55%, var(--fill-quaternary))" : "color-mix(in srgb, var(--fill-quaternary) 35%, transparent)"}`,
         transition: "border-color 300ms ease-out",
       }}
     >
@@ -90,7 +90,7 @@ export function ReasoningBlock({ content, isStreaming, autoCollapse }: Reasoning
       {/* Header */}
       <button
         type="button"
-        className="flex items-center gap-1.5 text-left text-[11px] cursor-pointer select-none py-0.5"
+        className="flex items-center gap-1.5 text-left text-[12px] cursor-pointer select-none py-0.5"
         style={{ color: "var(--fill-tertiary)" }}
         onClick={() => setExpanded((v) => !v)}
       >

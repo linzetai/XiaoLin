@@ -634,7 +634,7 @@ export function complexTurnFixture(
       session_id: sessionId,
       turn_id: turnId,
       seq: nextSeq(),
-      payload: { node_id: "node-at-1", delta: "\n\nNo bugs found. The code compiles cleanly!" },
+      payload: { node_id: "node-at-2", delta: "No bugs found. The code compiles cleanly!" },
     }),
   );
 
@@ -645,9 +645,8 @@ export function complexTurnFixture(
       turn_id: turnId,
       seq: nextSeq(),
       payload: {
-        text_node_id: "node-at-1",
-        final_text_content:
-          "I'll start by reading the file. \n\nThe file looks simple. Let me check for bugs with grep.\n\nNo bugs found. The code compiles cleanly!",
+        text_node_id: "node-at-2",
+        final_text_content: "No bugs found. The code compiles cleanly!",
       },
     }),
   );

@@ -10,225 +10,24 @@ import type {
   SubAgentNotification,
   SubAgentToolCall,
   BackendMessage,
-  ChatMessageToolCall,
-  ChatMessageImage,
 } from "./types";
 import { useTimelineStore } from "./timeline-store";
 import * as api from "../api";
+import type { TurnDisplayNode } from "../timeline/types";
 
-function parseUtcTimestamp(ts: string): Date {
-  if (!ts) return new Date();
-  if (ts.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(ts)) return new Date(ts);
-  return new Date(ts.replace(" ", "T") + "Z");
-}
-
-function parseTextSegmentEntry(entry: string): string | null {
-  if (!entry.startsWith("text:")) return null;
-  const raw = entry.slice(5);
-  try {
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "string" ? parsed : null;
-  } catch {
-    return raw;
-  }
-}
-
-/** Map a backend tool_calls_json entry to a ChatMessageToolCall, preserving truncation markers. */
-function mapToolCall(
-  tc: NonNullable<BackendMessage["toolCallsJson"]>[number],
-  messageId: number,
-  sessionId: string,
-  toolResultMap: Map<string, { content: string; success: boolean }>,
-): ChatMessageToolCall {
-  const callId = tc.id;
-  const hasEnriched = tc.output !== undefined || tc.display_output !== undefined;
-  const matched = toolResultMap.get(callId);
-  const result = hasEnriched
-    ? (tc.display_output ?? tc.output)
-    : (matched?.content ?? (tc.output as string | undefined));
-  const success = hasEnriched
-    ? (tc.success !== false)
-    : (matched ? matched.success : true);
+function unsupportedHistoryNode(chatId: string): TurnDisplayNode {
+  const now = Date.now();
   return {
-    id: callId,
-    name: tc.function?.name ?? "unknown",
-    status: (success ? "success" : "error") as "success" | "error",
-    args: tc.function?.arguments,
-    result,
-    displayOutput: tc.display_output,
-    duration: tc.duration_ms,
-    metadata: tc.metadata,
-    truncated: tc.truncated,
-    fullLength: tc.full_length,
-    messageId,
-    sessionId,
-    outputHandle: tc.output_handle,
-    outputSizeClass: tc.output_size_class,
-    outputIsExpandable: tc.output_is_expandable,
+    kind: "system_notice",
+    node_id: `unsupported-history-${chatId}`,
+    turn_id: "unsupported-history",
+    status: "completed",
+    created_at_ms: now,
+    updated_at_ms: now,
+    level: "warning",
+    category: "unsupported_history",
+    message: "This session was created before canonical timeline replay and cannot be reconstructed.",
   };
-}
-
-/** Convert backend messages into StreamItem[], dropping tool-role rows (they enrich assistant tool calls). */
-function buildStreamItems(chatId: string, messages: BackendMessage[]): StreamItem[] {
-  const toolResultMap = new Map<string, { content: string; success: boolean }>();
-  for (const m of messages) {
-    if (m.role === "tool" && m.toolCallId) {
-      const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
-      toolResultMap.set(m.toolCallId, { content, success: true });
-    }
-  }
-
-  return messages
-    .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "system")
-    .map((m) => {
-      let toolCalls: ChatMessageToolCall[] | undefined;
-      if (m.toolCallsJson && Array.isArray(m.toolCallsJson) && m.toolCallsJson.length > 0) {
-        toolCalls = m.toolCallsJson.map((tc) => mapToolCall(tc, m.id, chatId, toolResultMap));
-      }
-      let content: string;
-      let images: ChatMessageImage[] | undefined;
-      if (Array.isArray(m.content)) {
-        const textParts: string[] = [];
-        const imgParts: ChatMessageImage[] = [];
-        for (const part of m.content as Array<Record<string, unknown>>) {
-          if (part.type === "text" && typeof part.text === "string") {
-            textParts.push(part.text);
-          } else if (part.type === "image_url") {
-            const iu = part.image_url as Record<string, string> | undefined;
-            if (iu?.url) imgParts.push({ url: iu.url });
-          }
-        }
-        content = textParts.join("\n");
-        if (imgParts.length > 0) images = imgParts;
-      } else {
-        content = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
-      }
-      const usage: ChatUsage | undefined =
-        (m.promptTokens || m.completionTokens || m.elapsedMs)
-          ? {
-              promptTokens: m.promptTokens ?? 0,
-              completionTokens: m.completionTokens ?? 0,
-              totalTokens: m.totalTokens ?? 0,
-              elapsedMs: m.elapsedMs ?? 0,
-            }
-          : undefined;
-      return {
-        type: "message" as const,
-        data: {
-          role: m.role as "user" | "assistant" | "system",
-          content, id: idCounter.nextId++, backendId: m.id, timestamp: parseUtcTimestamp(m.createdAt),
-          chatId, toolCalls, images, usage,
-        },
-      };
-    });
-}
-
-/**
- * Reconstruct per-message segment lists for restored assistant history.
- *
- * @deprecated The canonical timeline (TurnDisplayNode[]) is now the source of
- * truth for UI transcript state. This function exists only for backward
- * compatibility and will be removed when Phase 5 rendering is complete.
- */
-function buildMessageSegments(chatId: string, messages: BackendMessage[]): Record<number, ChatStreamSegment[]> {
-  const result: Record<number, ChatStreamSegment[]> = {};
-  const toolResultMap = new Map<string, { content: string; success: boolean }>();
-  for (const m of messages) {
-    if (m.role === "tool" && m.toolCallId) {
-      const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
-      toolResultMap.set(m.toolCallId, { content, success: true });
-    }
-  }
-
-  for (const message of messages) {
-    if (message.role !== "assistant") continue;
-
-    const toolCallMap = new Map<string, ChatStreamSegment>();
-    if (message.toolCallsJson && Array.isArray(message.toolCallsJson)) {
-      for (const tc of message.toolCallsJson) {
-        const toolCall = mapToolCall(tc, message.id, chatId, toolResultMap);
-        toolCallMap.set(tc.id, {
-          id: `msg-${message.id}-tool-${tc.id}`,
-          type: "tool",
-          toolCall,
-        });
-      }
-    }
-
-    let textContent: string;
-    if (Array.isArray(message.content)) {
-      textContent = (message.content as Array<Record<string, unknown>>)
-        .filter((p) => p.type === "text" && typeof p.text === "string")
-        .map((p) => p.text as string)
-        .join("\n");
-    } else {
-      textContent = typeof message.content === "string"
-        ? message.content
-        : JSON.stringify(message.content ?? "");
-    }
-
-    const hasReasoning = !!message.reasoningContent;
-    const hasTools = toolCallMap.size > 0;
-    const order = message.segmentOrder;
-    if (!hasReasoning && !hasTools && (!order || order.length === 0)) continue;
-
-    const segments: ChatStreamSegment[] = [];
-    const usedToolIds = new Set<string>();
-    let reasoningUsed = false;
-
-    if (order && Array.isArray(order) && order.length > 0) {
-      const hasEncodedTextSegments = order.some((entry) => entry.startsWith("text:"));
-      const legacyTextEntries = order.filter((entry) => entry === "text").length;
-      for (const entry of order) {
-        if (entry === "reasoning" && message.reasoningContent && !reasoningUsed) {
-          segments.push({ id: `msg-${message.id}-reasoning`, type: "reasoning", content: message.reasoningContent });
-          reasoningUsed = true;
-        } else if (entry.startsWith("text:")) {
-          const segmentText = parseTextSegmentEntry(entry);
-          if (segmentText) {
-            segments.push({ id: `msg-${message.id}-text-${segments.length}`, type: "text", content: segmentText });
-          }
-        } else if (entry === "text" && textContent) {
-          if (!hasEncodedTextSegments && legacyTextEntries <= 1) {
-            segments.push({ id: `msg-${message.id}-text-${segments.length}`, type: "text", content: textContent });
-            textContent = "";
-          }
-        } else if (entry.startsWith("tool:")) {
-          const callId = entry.slice(5);
-          const seg = toolCallMap.get(callId);
-          if (seg) {
-            segments.push(seg);
-            usedToolIds.add(callId);
-          }
-        }
-      }
-      if (message.reasoningContent && !reasoningUsed) {
-        segments.push({ id: `msg-${message.id}-reasoning`, type: "reasoning", content: message.reasoningContent });
-      }
-      for (const [id, seg] of toolCallMap) {
-        if (!usedToolIds.has(id)) segments.push(seg);
-      }
-      if (textContent && !hasEncodedTextSegments) {
-        segments.push({ id: `msg-${message.id}-text-restored`, type: "text", content: textContent });
-      }
-    } else {
-      if (message.reasoningContent) {
-        segments.push({ id: `msg-${message.id}-reasoning`, type: "reasoning", content: message.reasoningContent });
-      }
-      for (const seg of toolCallMap.values()) {
-        segments.push(seg);
-      }
-      if (textContent) {
-        segments.push({ id: `msg-${message.id}-text-restored`, type: "text", content: textContent });
-      }
-    }
-
-    if (segments.length > 0) {
-      result[message.id] = segments;
-    }
-  }
-
-  return result;
 }
 
 export const EMPTY_STREAM: StreamItem[] = [];
@@ -239,7 +38,6 @@ export interface StreamState {
   streams: Record<string, StreamItem[]>;
   usage: Record<string, ChatUsage>;
   lastSegments: Record<string, ChatStreamSegment[]>;
-  messageSegments: Record<string, Record<number, ChatStreamSegment[]>>;
   subAgentRuns: Record<string, Record<string, SubAgentRunUI>>;
   toolProgress: Record<string, { progress?: number; message?: string }>;
   hasMore: Record<string, boolean>;
@@ -270,7 +68,6 @@ export const useStreamStore = create<StreamState>((set) => ({
   streams: {},
   usage: {},
   lastSegments: {},
-  messageSegments: {},
   subAgentRuns: {},
   toolProgress: {},
   hasMore: {},
@@ -287,33 +84,30 @@ export const useStreamStore = create<StreamState>((set) => ({
       const { [chatId]: _s, ...streams } = state.streams;
       const { [chatId]: _u, ...usage } = state.usage;
       const { [chatId]: _l, ...lastSegments } = state.lastSegments;
-      const { [chatId]: _m, ...messageSegments } = state.messageSegments;
       const { [chatId]: _r, ...subAgentRuns } = state.subAgentRuns;
       const { [chatId]: _h, ...hasMore } = state.hasMore;
-      return { streams, usage, lastSegments, messageSegments, subAgentRuns, hasMore };
+      return { streams, usage, lastSegments, subAgentRuns, hasMore };
     });
   },
 
   updateStreamKey: (oldId, newId) => {
     set((state) => {
-      if (!state.streams[oldId] && !state.usage[oldId] && !state.lastSegments[oldId] && !state.messageSegments[oldId] && !state.subAgentRuns[oldId] && state.hasMore[oldId] === undefined) {
+      if (!state.streams[oldId] && !state.usage[oldId] && !state.lastSegments[oldId] && !state.subAgentRuns[oldId] && state.hasMore[oldId] === undefined) {
         return state;
       }
       const streams = { ...state.streams };
       const usage = { ...state.usage };
       const lastSegments = { ...state.lastSegments };
-      const messageSegments = { ...state.messageSegments };
       const subAgentRuns = { ...state.subAgentRuns };
       const hasMore = { ...state.hasMore };
 
       if (streams[oldId]) { streams[newId] = streams[oldId]; delete streams[oldId]; }
       if (usage[oldId]) { usage[newId] = usage[oldId]; delete usage[oldId]; }
       if (lastSegments[oldId]) { lastSegments[newId] = lastSegments[oldId]; delete lastSegments[oldId]; }
-      if (messageSegments[oldId]) { messageSegments[newId] = messageSegments[oldId]; delete messageSegments[oldId]; }
       if (subAgentRuns[oldId]) { subAgentRuns[newId] = subAgentRuns[oldId]; delete subAgentRuns[oldId]; }
       if (state.hasMore[oldId] !== undefined) { hasMore[newId] = state.hasMore[oldId]; delete hasMore[oldId]; }
 
-      return { streams, usage, lastSegments, messageSegments, subAgentRuns, hasMore };
+      return { streams, usage, lastSegments, subAgentRuns, hasMore };
     });
   },
 
@@ -403,12 +197,15 @@ export const useStreamStore = create<StreamState>((set) => ({
   },
 
   loadChatStream: (chatId, messages, hasMore) => {
-    const items = buildStreamItems(chatId, messages);
-    const messageSegments = buildMessageSegments(chatId, messages);
+    console.log("[timeline:loadChatStream]", { chatId, msgCount: messages.length, hasMore });
+    if (messages.length > 0) {
+      useTimelineStore.getState().loadNodes(chatId, [unsupportedHistoryNode(chatId)]);
+    }
 
     // Hydrate the canonical timeline store from display nodes.
-    // This replaces the legacy segmentOrder/toolCallsJson-based reconstruction.
+    // Legacy message fields are never reconstructed into transcript nodes here.
     api.getSessionDisplayNodes(chatId).then((page) => {
+      console.log("[timeline:displayNodes]", { chatId, nodeCount: page.nodes?.length ?? 0 });
       if (page.nodes && page.nodes.length > 0) {
         // Convert raw nodes to TurnDisplayNode[] and load into timeline store.
         const nodes = page.nodes.map((raw) => ({
@@ -416,29 +213,37 @@ export const useStreamStore = create<StreamState>((set) => ({
           kind: (raw.kind as string) || "system_notice",
         })) as import("../timeline/types").TurnDisplayNode[];
         useTimelineStore.getState().loadNodes(chatId, nodes);
+        console.log("[timeline:displayNodes] loaded", { chatId, nodeCount: nodes.length });
       } else {
+        console.log("[timeline:displayNodes] empty, falling back to timeline events", { chatId });
         // No display nodes yet — load raw timeline events as fallback.
         api.getSessionTimeline(chatId, undefined, 2000).then((tl) => {
+          console.log("[timeline:events]", { chatId, eventCount: tl.events?.length ?? 0 });
           if (tl.events && tl.events.length > 0) {
             useTimelineStore.getState().loadEvents(
               chatId,
               tl.events as unknown as import("../timeline/types").TurnTimelineEvent[],
             );
+            console.log("[timeline:events] loaded", { chatId, eventCount: tl.events.length });
+          } else {
+            console.warn("[timeline:events] empty, showing unsupported history", { chatId });
+            useTimelineStore.getState().loadNodes(chatId, [unsupportedHistoryNode(chatId)]);
           }
-        }).catch(() => {
-          // Timeline not available for this session (pre-change session).
+        }).catch((err) => {
+          console.error("[timeline:events] failed", { chatId, error: err });
+          useTimelineStore.getState().loadNodes(chatId, [unsupportedHistoryNode(chatId)]);
         });
       }
-    }).catch(() => {
-      // Timeline not available — session may be pre-change.
+    }).catch((err) => {
+      console.error("[timeline:displayNodes] failed", { chatId, error: err });
+      useTimelineStore.getState().loadNodes(chatId, [unsupportedHistoryNode(chatId)]);
     });
 
     set((state) => {
       const existing = state.streams[chatId];
       if (existing && existing.length > 0) return state;
-      const newStreams = { ...state.streams, [chatId]: items };
+      const newStreams = { ...state.streams, [chatId]: [] };
       const newUsage = { ...state.usage };
-      const newMessageSegments = { ...state.messageSegments, [chatId]: messageSegments };
       const newSubRuns = { ...state.subAgentRuns };
       const newHasMore = { ...state.hasMore, [chatId]: hasMore ?? false };
 
@@ -449,7 +254,6 @@ export const useStreamStore = create<StreamState>((set) => ({
         for (const k of toEvict) {
           delete newStreams[k];
           delete newUsage[k];
-          delete newMessageSegments[k];
           delete newSubRuns[k];
           delete newHasMore[k];
         }
@@ -457,26 +261,20 @@ export const useStreamStore = create<StreamState>((set) => ({
       return {
         streams: newStreams,
         usage: newUsage,
-        messageSegments: newMessageSegments,
         subAgentRuns: newSubRuns,
         hasMore: newHasMore,
       };
     });
   },
 
-  prependChatStream: (chatId, messages, hasMore) => {
-    const items = buildStreamItems(chatId, messages);
-    const restoredSegments = buildMessageSegments(chatId, messages);
+  prependChatStream: (chatId, _messages, hasMore) => {
     set((state) => {
       const existing = state.streams[chatId] ?? [];
-      const newStreams = { ...state.streams, [chatId]: [...items, ...existing] };
-      const currentSegments = state.messageSegments[chatId] ?? {};
-      const newMessageSegments = {
-        ...state.messageSegments,
-        [chatId]: { ...restoredSegments, ...currentSegments },
-      };
       const newHasMore = { ...state.hasMore, [chatId]: hasMore ?? false };
-      return { streams: newStreams, messageSegments: newMessageSegments, hasMore: newHasMore };
+      return {
+        streams: { ...state.streams, [chatId]: existing },
+        hasMore: newHasMore,
+      };
     });
   },
 

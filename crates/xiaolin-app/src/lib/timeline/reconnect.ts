@@ -47,7 +47,7 @@ export async function recoverTimelineAfterReconnect(
           ...raw,
           kind: (raw.kind as string) || "system_notice",
         })) as TurnDisplayNode[];
-        useTimelineStore.getState().loadNodes(sessionId, nodes);
+        useTimelineStore.getState().loadNodes(sessionId, nodes, backendMax);
         return true;
       }
 
@@ -71,6 +71,8 @@ export async function recoverTimelineAfterReconnect(
         sessionId,
         tlResp.events as unknown as TurnTimelineEvent[],
       );
+    } else {
+      useTimelineStore.getState().setLastSeenSeq(sessionId, backendMax);
     }
 
     return true;
@@ -96,13 +98,15 @@ export async function initTimelineForSession(
 
   // Try to load existing display nodes (for history sessions)
   try {
+    const maxSeqResp = await api.getTimelineMaxSeq(sessionId);
+    const backendMax = maxSeqResp.max_seq ?? 0;
     const displayResp = await api.getSessionDisplayNodes(sessionId);
     if (displayResp.nodes && displayResp.nodes.length > 0) {
       const nodes = displayResp.nodes.map((raw) => ({
         ...raw,
         kind: (raw.kind as string) || "system_notice",
       })) as TurnDisplayNode[];
-      useTimelineStore.getState().loadNodes(sessionId, nodes);
+      useTimelineStore.getState().loadNodes(sessionId, nodes, backendMax);
     }
   } catch {
     // Pre-change session or no timeline data — that's fine

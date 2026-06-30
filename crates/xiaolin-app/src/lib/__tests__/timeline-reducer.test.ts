@@ -42,6 +42,11 @@ import {
   makeReasoningDelta,
   makeReasoningSnapshot,
   makeAssistantMessageFinalized,
+  makeCompactBoundary,
+  makeSystemNotice,
+  makeIterationBoundary,
+  makeToolProgress,
+  makeApprovalResolved,
 } from "../timeline/fixtures";
 import type {
   TurnTimelineEvent,
@@ -184,6 +189,31 @@ describe("Complex turn fixture", () => {
     expect(boundaries).toHaveLength(1);
     if (boundaries[0].kind === "iteration_boundary") {
       expect(boundaries[0].iteration).toBe(1);
+    }
+  });
+
+  it("preserves assistant text-tool-text ordering with separate text nodes", () => {
+    const state = reduceTimelineEvents(events);
+    const sequence = state.nodes.map((node) => node.kind);
+    const firstText = state.nodes.findIndex(
+      (node) => node.kind === "assistant_text" && node.node_id === "node-at-1",
+    );
+    const firstTool = state.nodes.findIndex(
+      (node) => node.kind === "tool_step" && node.node_id === "node-ts-tc-read-1",
+    );
+    const finalText = state.nodes.findIndex(
+      (node) => node.kind === "assistant_text" && node.node_id === "node-at-2",
+    );
+
+    expect(firstText).toBeGreaterThanOrEqual(0);
+    expect(firstTool).toBeGreaterThan(firstText);
+    expect(finalText).toBeGreaterThan(firstTool);
+    expect(sequence.filter((kind) => kind === "assistant_text")).toHaveLength(2);
+
+    const finalNode = state.nodes[finalText];
+    expect(finalNode.kind).toBe("assistant_text");
+    if (finalNode.kind === "assistant_text") {
+      expect(finalNode.content).toBe("No bugs found. The code compiles cleanly!");
     }
   });
 
@@ -712,6 +742,480 @@ describe("Reasoning snapshot", () => {
     expect(rNode.status).toBe("completed");
     if (rNode.kind === "reasoning") {
       expect(rNode.collapsed).toBe(true);
+    }
+  });
+});
+
+// ============================================================================
+// Text/reasoning interleaving (real-time streaming)
+// ============================================================================
+
+describe("Text/reasoning interleaving", () => {
+  it("coalesces consecutive text deltas with the same node_id", () => {
+    const events: TurnTimelineEvent[] = [
+      makeTextDelta({
+        turn_id: "t1",
+        seq: 1,
+        payload: { node_id: "text-1", delta: "Let" },
+      }),
+      makeTextDelta({
+        turn_id: "t1",
+        seq: 2,
+        payload: { node_id: "text-1", delta: " me" },
+      }),
+      makeTextDelta({
+        turn_id: "t1",
+        seq: 3,
+        payload: { node_id: "text-1", delta: " check." },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const textNodes = findNodesByKind(state.nodes, "assistant_text");
+    expect(textNodes).toHaveLength(1);
+    if (textNodes[0].kind === "assistant_text") {
+      expect(textNodes[0].content).toBe("Let me check.");
+      expect(textNodes[0].status).toBe("pending"); // still streaming
+    }
+  });
+
+  it("different text node_ids create separate text blocks", () => {
+    const events: TurnTimelineEvent[] = [
+      makeTextDelta({
+        turn_id: "t1",
+        seq: 1,
+        payload: { node_id: "text-1", delta: "Before reasoning." },
+      }),
+      // Reasoning flushes text → new text_node_id
+      makeTextDelta({
+        turn_id: "t1",
+        seq: 2,
+        payload: { node_id: "text-2", delta: "After reasoning." },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const textNodes = findNodesByKind(state.nodes, "assistant_text");
+    expect(textNodes).toHaveLength(2);
+    if (textNodes[0].kind === "assistant_text") {
+      expect(textNodes[0].content).toBe("Before reasoning.");
+    }
+    if (textNodes[1].kind === "assistant_text") {
+      expect(textNodes[1].content).toBe("After reasoning.");
+    }
+  });
+
+  it("coalesces consecutive reasoning deltas with the same node_id", () => {
+    const events: TurnTimelineEvent[] = [
+      makeReasoningDelta({
+        turn_id: "t1",
+        seq: 1,
+        payload: { node_id: "r-1", delta: "Hmm" },
+      }),
+      makeReasoningDelta({
+        turn_id: "t1",
+        seq: 2,
+        payload: { node_id: "r-1", delta: ", let me think." },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const rNodes = findNodesByKind(state.nodes, "reasoning");
+    expect(rNodes).toHaveLength(1);
+    if (rNodes[0].kind === "reasoning") {
+      expect(rNodes[0].content).toBe("Hmm, let me think.");
+      expect(rNodes[0].status).toBe("pending"); // still streaming
+    }
+  });
+
+  it("text-tool-text interleaving maintains correct order", () => {
+    const events: TurnTimelineEvent[] = [
+      makeTurnStarted({ turn_id: "t1", seq: 1 }),
+      makeUserMessageCreated({ turn_id: "t1", seq: 2 }),
+      makeTextDelta({ turn_id: "t1", seq: 3, payload: { node_id: "text-1", delta: "Let me read." } }),
+      makeToolStarted({ turn_id: "t1", seq: 4, payload: { call_id: "tc-1", tool_name: "read_file", display_title: "Read file" } }),
+      makeToolFinished({ turn_id: "t1", seq: 5, payload: { call_id: "tc-1", tool_name: "read_file", success: true } }),
+      makeTextDelta({ turn_id: "t1", seq: 6, payload: { node_id: "text-2", delta: "Done." } }),
+      makeTurnFinished({ turn_id: "t1", seq: 7 }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const kinds = kindSequence(state.nodes);
+    expect(kinds).toEqual([
+      "user_message",
+      "assistant_text",
+      "tool_step",
+      "assistant_text",
+      "turn_status",
+    ]);
+  });
+
+  it("reasoning-text-tool-text interleaving", () => {
+    const events: TurnTimelineEvent[] = [
+      makeTurnStarted({ turn_id: "t1", seq: 1 }),
+      makeUserMessageCreated({ turn_id: "t1", seq: 2 }),
+      makeReasoningDelta({ turn_id: "t1", seq: 3, payload: { node_id: "r-1", delta: "Let me think." } }),
+      makeTextDelta({ turn_id: "t1", seq: 4, payload: { node_id: "text-1", delta: "I'll help." } }),
+      makeToolStarted({ turn_id: "t1", seq: 5, payload: { call_id: "tc-1", tool_name: "grep", display_title: "Search" } }),
+      makeToolFinished({ turn_id: "t1", seq: 6, payload: { call_id: "tc-1", tool_name: "grep", success: true } }),
+      makeTextDelta({ turn_id: "t1", seq: 7, payload: { node_id: "text-2", delta: "Found it!" } }),
+      makeTurnFinished({ turn_id: "t1", seq: 8 }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const kinds = kindSequence(state.nodes);
+    expect(kinds).toEqual([
+      "user_message",
+      "reasoning",
+      "assistant_text",
+      "tool_step",
+      "assistant_text",
+      "turn_status",
+    ]);
+  });
+
+  it("pending text node shows streaming state", () => {
+    const events: TurnTimelineEvent[] = [
+      makeTextDelta({ turn_id: "t1", seq: 1, payload: { node_id: "text-1", delta: "Streaming..." } }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const activeNodes = selectActiveNodes(state);
+    expect(activeNodes).toHaveLength(1);
+    expect(activeNodes[0].kind).toBe("assistant_text");
+    expect(activeNodes[0].status).toBe("pending");
+  });
+
+  it("turn_finished marks all nodes as completed (no pending)", () => {
+    const events: TurnTimelineEvent[] = [
+      makeTurnStarted({ turn_id: "t1", seq: 1 }),
+      makeUserMessageCreated({ turn_id: "t1", seq: 2 }),
+      makeTextDelta({ turn_id: "t1", seq: 3, payload: { node_id: "text-1", delta: "Done." } }),
+      makeReasoningDelta({ turn_id: "t1", seq: 4, payload: { node_id: "r-1", delta: "..." } }),
+      makeTurnFinished({ turn_id: "t1", seq: 5 }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const activeNodes = selectActiveNodes(state);
+    expect(activeNodes).toHaveLength(0); // all completed
+  });
+});
+
+// ============================================================================
+// Uncovered branch coverage
+// ============================================================================
+
+describe("Coverage: tool_call_progress before start (stub node)", () => {
+  it("creates a stub tool node when progress arrives before tool_call_started", () => {
+    const events: TurnTimelineEvent[] = [
+      // Progress arrives first — no matching tool_call_started
+      makeToolProgress({
+        turn_id: "t1",
+        seq: 1,
+        payload: { call_id: "orphan-call", message: "Working...", progress: 0.3 },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const tools = findNodesByKind(state.nodes, "tool_step");
+    expect(tools).toHaveLength(1);
+    if (tools[0].kind === "tool_step") {
+      expect(tools[0].call_id).toBe("orphan-call");
+      expect(tools[0].status).toBe("running");
+      expect(tools[0].tool_name).toBe("orphan-call"); // fallback: call_id used as name
+      expect(tools[0].progress).toBe(0.3);
+      expect(tools[0].progress_label).toBe("Working...");
+    }
+  });
+});
+
+describe("Coverage: tool_call_finished without start", () => {
+  it("creates a completed tool node when finish arrives without start", () => {
+    const events: TurnTimelineEvent[] = [
+      makeToolFinished({
+        turn_id: "t1",
+        seq: 1,
+        payload: {
+          call_id: "orphan-finish",
+          tool_name: "bash",
+          success: true,
+          duration_ms: 200,
+        },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const tools = findNodesByKind(state.nodes, "tool_step");
+    expect(tools).toHaveLength(1);
+    if (tools[0].kind === "tool_step") {
+      expect(tools[0].call_id).toBe("orphan-finish");
+      expect(tools[0].status).toBe("completed");
+      expect(tools[0].duration_ms).toBe(200);
+    }
+  });
+
+  it("creates a failed tool node when failed finish arrives without start", () => {
+    const events: TurnTimelineEvent[] = [
+      makeToolFinished({
+        turn_id: "t1",
+        seq: 1,
+        payload: {
+          call_id: "orphan-fail",
+          tool_name: "grep",
+          success: false,
+          error_message: "Command not found",
+        },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const tools = findNodesByKind(state.nodes, "tool_step");
+    expect(tools).toHaveLength(1);
+    if (tools[0].kind === "tool_step") {
+      expect(tools[0].status).toBe("failed");
+      expect(tools[0].error_message).toBe("Command not found");
+    }
+  });
+});
+
+describe("Coverage: approval_resolved without request", () => {
+  it("creates a completed approval node when resolved without request", () => {
+    const events: TurnTimelineEvent[] = [
+      makeApprovalResolved({
+        turn_id: "t1",
+        seq: 1,
+        payload: { approval_id: "orphan-apr", decision: "deny", source: "policy" },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const approvals = findNodesByKind(state.nodes, "approval");
+    expect(approvals).toHaveLength(1);
+    if (approvals[0].kind === "approval") {
+      expect(approvals[0].status).toBe("completed");
+      expect(approvals[0].decision).toBe("deny");
+      expect(approvals[0].decision_source).toBe("policy");
+    }
+  });
+});
+
+describe("Coverage: turn_finished severity=error", () => {
+  it("sets turn status to failed when severity is error", () => {
+    const events: TurnTimelineEvent[] = [
+      makeTurnStarted({ turn_id: "t1", seq: 1 }),
+      makeUserMessageCreated({ turn_id: "t1", seq: 2 }),
+      makeTurnFinished({
+        turn_id: "t1",
+        seq: 3,
+        payload: {
+          end_reason: "tool_loop",
+          severity: "error",
+          diagnosis_code: "tool_loop",
+          user_message: "Stopped by tool loop.",
+        },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const statusNodes = findNodesByKind(state.nodes, "turn_status");
+    expect(statusNodes).toHaveLength(1);
+    if (statusNodes[0].kind === "turn_status") {
+      expect(statusNodes[0].status).toBe("failed");
+      expect(statusNodes[0].end_reason).toBe("tool_loop");
+    }
+  });
+
+  it("normal completion has turn_status with completed status", () => {
+    const events: TurnTimelineEvent[] = [
+      makeTurnStarted({ turn_id: "t1", seq: 1 }),
+      makeUserMessageCreated({ turn_id: "t1", seq: 2 }),
+      makeTurnFinished({
+        turn_id: "t1",
+        seq: 3,
+        payload: { end_reason: "completed" },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const statusNodes = findNodesByKind(state.nodes, "turn_status");
+    // Frontend reducer always creates TurnStatusNode (unlike backend materializer
+    // which skips it for end_reason="completed")
+    expect(statusNodes).toHaveLength(1);
+    if (statusNodes[0].kind === "turn_status") {
+      expect(statusNodes[0].end_reason).toBe("completed");
+      // Normal completion: no diagnosis
+      expect(statusNodes[0].diagnosis).toBeUndefined();
+    }
+  });
+});
+
+describe("Coverage: user_message_created without message_id", () => {
+  it("uses nodeIdFromEvent when message_id is not provided", () => {
+    const events: TurnTimelineEvent[] = [
+      makeUserMessageCreated({
+        turn_id: "t1",
+        seq: 1,
+        payload: { content: "No message id" }, // no message_id
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const msgs = findNodesByKind(state.nodes, "user_message");
+    expect(msgs).toHaveLength(1);
+    if (msgs[0].kind === "user_message") {
+      expect(msgs[0].content).toBe("No message id");
+      expect(msgs[0].message_id).toBeUndefined();
+      expect(msgs[0].node_id).toMatch(/^node-um-/);
+    }
+  });
+});
+
+describe("Coverage: nodesAreEquivalent and diffNodes", () => {
+  it("nodesAreEquivalent returns true for identical node arrays", () => {
+    const events = complexTurnFixture();
+    const state1 = reduceTimelineEvents(events);
+    const state2 = reduceTimelineEvents(events);
+    expect(nodesAreEquivalent(state1.nodes, state2.nodes)).toBe(true);
+  });
+
+  it("nodesAreEquivalent returns false for different node arrays", () => {
+    const events1 = simpleTextTurnFixture();
+    const events2 = complexTurnFixture();
+    const state1 = reduceTimelineEvents(events1);
+    const state2 = reduceTimelineEvents(events2);
+    expect(nodesAreEquivalent(state1.nodes, state2.nodes)).toBe(false);
+  });
+
+  it("diffNodes returns empty for identical arrays", () => {
+    const events = complexTurnFixture();
+    const state1 = reduceTimelineEvents(events);
+    const state2 = reduceTimelineEvents(events);
+    expect(diffNodes(state1.nodes, state2.nodes)).toEqual([]);
+  });
+
+  it("diffNodes returns differences for mismatched arrays", () => {
+    const events1 = simpleTextTurnFixture();
+    const events2 = complexTurnFixture();
+    const state1 = reduceTimelineEvents(events1);
+    const state2 = reduceTimelineEvents(events2);
+    const diffs = diffNodes(state1.nodes, state2.nodes);
+    expect(diffs.length).toBeGreaterThan(0);
+  });
+});
+
+describe("Coverage: turn_started and default event_type", () => {
+  it("turn_started does not create a visible node", () => {
+    const events: TurnTimelineEvent[] = [
+      makeTurnStarted({ turn_id: "t1", seq: 1 }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    expect(state.nodes).toHaveLength(0); // metadata-only, no visible node
+    expect(state.events).toHaveLength(1);
+  });
+
+  it("unknown event_type falls through to default (no nodes)", () => {
+    const event: TurnTimelineEvent = {
+      id: "unknown-1",
+      session_id: "s1",
+      turn_id: "t1",
+      seq: 1,
+      event_type: "__unknown__" as any,
+      schema_version: 1,
+      payload_json: {} as any,
+      created_at_ms: 1000,
+    };
+
+    let state = emptyTimelineState("s1");
+    state = reduceTimelineEvent(state, event);
+    // Default case returns existing nodes unchanged
+    expect(state.nodes).toHaveLength(0);
+    expect(state.events).toHaveLength(1);
+  });
+});
+
+describe("Coverage: mergeTrace without existing trace", () => {
+  it("mergeTrace creates a new trace when existing is undefined", () => {
+    // This is tested implicitly by all delta coalescing tests,
+    // but we test the edge case directly via the exported function.
+    const event: TurnTimelineEvent = {
+      id: "evt-1",
+      session_id: "s1",
+      turn_id: "t1",
+      seq: 1,
+      event_type: "assistant_text_delta",
+      schema_version: 1,
+      payload_json: { node_id: "n1", delta: "test" },
+      created_at_ms: 1000,
+    };
+
+    // First delta creates a new node (no existing trace → traceFromEvent)
+    let state = emptyTimelineState("s1");
+    state = reduceTimelineEvent(state, event);
+    expect(state.nodes[0].source_trace).toBeDefined();
+    expect(state.nodes[0].source_trace?.event_ids).toEqual(["evt-1"]);
+  });
+});
+
+describe("Coverage: compact_boundary event", () => {
+  it("compact_boundary creates a system_notice node", () => {
+    const events: TurnTimelineEvent[] = [
+      makeCompactBoundary({
+        turn_id: "t1",
+        seq: 1,
+        payload: {
+          trigger: "auto",
+          pre_compact_tokens: 50000,
+          post_compact_tokens: 15000,
+          messages_removed: 20,
+        },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const notices = findNodesByKind(state.nodes, "system_notice");
+    expect(notices).toHaveLength(1);
+    if (notices[0].kind === "system_notice") {
+      expect(notices[0].category).toBe("compaction");
+    }
+  });
+});
+
+describe("Coverage: system_notice event", () => {
+  it("system_notice creates a system_notice node", () => {
+    const events: TurnTimelineEvent[] = [
+      makeSystemNotice({
+        turn_id: "t1",
+        seq: 1,
+        payload: { message: "Something happened", level: "warning", category: "system" },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const notices = findNodesByKind(state.nodes, "system_notice");
+    expect(notices).toHaveLength(1);
+    if (notices[0].kind === "system_notice") {
+      expect(notices[0].level).toBe("warning");
+      expect(notices[0].category).toBe("system");
+    }
+  });
+});
+
+describe("Coverage: iteration_boundary event", () => {
+  it("iteration_boundary creates a node with correct iteration number", () => {
+    const events: TurnTimelineEvent[] = [
+      makeIterationBoundary({
+        turn_id: "t1",
+        seq: 1,
+        payload: { iteration: 3 },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const boundaries = findNodesByKind(state.nodes, "iteration_boundary");
+    expect(boundaries).toHaveLength(1);
+    if (boundaries[0].kind === "iteration_boundary") {
+      expect(boundaries[0].iteration).toBe(3);
     }
   });
 });

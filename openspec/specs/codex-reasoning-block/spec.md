@@ -1,37 +1,41 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
-### Requirement: Left-line visual style
-ReasoningBlock SHALL render with a 2px left border using `var(--tint)` color and no outer border/background card styling. A 6px pulsing dot SHALL appear at the top-left corner while streaming is active.
+### Requirement: In-place assistant reasoning activity
+Reasoning SHALL be represented as `ReasoningNode` display nodes in the canonical timeline and rendered as subtle in-place assistant-response activity in both live and replay states.
 
-#### Scenario: Streaming reasoning displays left-line style
-- **WHEN** reasoning content is streaming (`isStreaming=true`)
-- **THEN** the block renders with `border-left: 2px solid var(--tint)`, no outer border, no background color, and a pulsing 6px dot at the top-left
-
-#### Scenario: Completed reasoning displays left-line style
-- **WHEN** reasoning is complete (`isStreaming=false`)
-- **THEN** the block renders with `border-left: 2px solid var(--fill-quaternary)` (dimmed), no pulsing dot
+#### Scenario: Streaming reasoning node uses secondary style
+- **WHEN** a `ReasoningNode` is streaming
+- **THEN** the node renders at its timeline position with secondary visual weight, no card-like outer container, and a subtle running indicator
+- **AND** it SHALL NOT be hoisted into a single global thinking panel
 
 ### Requirement: Fixed-height streaming panel with auto-scroll
-During streaming, the reasoning content area SHALL have a fixed max-height of 200px with `overflow-y: auto`. The panel SHALL automatically scroll to the bottom as new content arrives.
+The fixed-height streaming panel and auto-scroll behavior SHALL apply to active `ReasoningNode` content.
 
-#### Scenario: Streaming content exceeds max height
-- **WHEN** reasoning content length exceeds the 200px panel height during streaming
-- **THEN** the panel scrolls to bottom automatically, showing latest content
-
-#### Scenario: User manually scrolls up during streaming
-- **WHEN** user scrolls up in the reasoning panel while streaming
-- **THEN** auto-scroll pauses until user scrolls back to bottom
+#### Scenario: Active reasoning node auto-scrolls
+- **WHEN** reasoning deltas are appended to an active `ReasoningNode`
+- **THEN** the content area SHALL use the fixed max-height panel with auto-scroll
+- **AND** unrelated transcript nodes SHALL retain stable identity
 
 ### Requirement: Collapse transition animation
-When reasoning completes and `autoCollapse` triggers, the block SHALL animate its height to collapsed state using a CSS transition (max-height 300ms ease-out).
+Completed `ReasoningNode` content SHALL use the same collapse transition policy in live rendering and historical replay.
 
-#### Scenario: Reasoning completes with following content
-- **WHEN** reasoning finishes and text/tool segments follow (`autoCollapse=true`)
-- **THEN** the panel height animates from current to collapsed (header only) over 300ms
+#### Scenario: Completed reasoning node collapses identically
+- **WHEN** a `ReasoningNode` completes
+- **THEN** the node renders with the dimmed left-line style and animates to collapsed state per the autoCollapse policy
+- **AND** replay SHALL render the same completed, collapsed state as the live turn
 
 ### Requirement: Expand/collapse toggle
-Clicking the header area SHALL toggle between collapsed (header only) and expanded (full content with max-height removed) states.
+The expand/collapse toggle SHALL operate on canonical `ReasoningNode` state and SHALL NOT depend on legacy message reconstruction.
 
-#### Scenario: User clicks collapsed reasoning header
-- **WHEN** user clicks the reasoning block header while collapsed
-- **THEN** the block expands to show full content without max-height constraint
+#### Scenario: User toggles completed reasoning
+- **WHEN** user expands or collapses a completed `ReasoningNode`
+- **THEN** only that reasoning node's expanded state changes
+- **AND** text, tool, and boundary nodes SHALL retain stable identity
+
+### Requirement: Reasoning segmentation preserves chronology
+Multiple reasoning phases in a turn SHALL preserve their original timeline positions.
+
+#### Scenario: Reasoning before and after a tool
+- **WHEN** reasoning occurs before a tool call and additional reasoning occurs after that tool call
+- **THEN** the UI SHALL render two reasoning segments around the tool activity in the same relative order
+- **AND** consecutive reasoning deltas MAY coalesce only until a visible assistant-response activity boundary occurs

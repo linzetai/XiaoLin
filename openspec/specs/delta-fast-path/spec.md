@@ -1,28 +1,28 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: ContentDelta 携带预序列化字节
-`AgentEvent::ContentDelta` SHALL 支持携带可选的预序列化 JSON 字节（`raw_bytes: Option<bytes::Bytes>`），供 SSE 格式化时直接使用，避免重复序列化。
+The live streaming delta path SHALL route every `ContentDelta` into the canonical timeline reducer as timeline-compatible events while preserving the existing `raw_bytes` transport optimization.
 
-#### Scenario: Runtime 填充 raw_bytes
-- **WHEN** runtime 从 LLM 流式响应解析出 `StreamDelta` 并构建 `ContentDelta` 事件
-- **THEN** 事件 MUST 同时包含结构化 `delta: Value` 和原始 SSE data 行的 `raw_bytes`
+#### Scenario: ContentDelta feeds the timeline reducer
+- **WHEN** the runtime emits a `ContentDelta` event during a live turn
+- **THEN** the gateway SHALL derive or forward a timeline-compatible event into the same reducer used for replay
+- **AND** the frontend SHALL NOT accumulate the delta into a live-only segment array with separate semantics
 
-#### Scenario: SSE 格式化优先使用 raw_bytes
-- **WHEN** gateway 将 `ContentDelta` 格式化为 SSE 输出
-- **AND** `raw_bytes` 为 `Some`
-- **THEN** gateway SHALL 直接使用 `raw_bytes` 构建 `data: ...\n\n`，不调用 `serde_json::to_string`
-
-#### Scenario: raw_bytes 为 None 时降级
-- **WHEN** `ContentDelta` 的 `raw_bytes` 为 `None`（例如内部构造的事件）
-- **THEN** gateway SHALL 回退到 `serde_json::to_string(&delta)` 格式化
+#### Scenario: raw_bytes fast path is preserved for transport only
+- **WHEN** `ContentDelta` carries `raw_bytes`
+- **THEN** the gateway SHALL still use `raw_bytes` directly for SSE formatting
+- **AND** the raw_bytes optimization SHALL NOT imply a separate live-only transcript model
+- **AND** the same delta SHALL also be representable as a timeline event for replay
 
 ### Requirement: HTTP UserTurn 跳过冗余 messages 序列化
-当 `typed_data` 已设置时，`SessionOp::UserTurn` 的 `messages` 字段 SHALL 使用空占位值，避免对完整消息列表的 `to_value` 序列化。
+When `typed_data` is set, `SessionOp::UserTurn` SHALL keep using an empty placeholder for the `messages` field to avoid serializing the full message list. This optimization is independent of the canonical timeline: user message creation is also recorded as a `user_message_created` timeline event for UI replay.
 
-#### Scenario: typed_data 存在时 messages 为空
-- **WHEN** HTTP `handle_stream` 构建 `SessionOp::UserTurn` 且 `typed_data` 为 `Some`
-- **THEN** `messages` 字段 MUST 为空 `Value::Array(vec![])`
+#### Scenario: typed_data present keeps messages empty
+- **WHEN** HTTP `handle_stream` builds `SessionOp::UserTurn` and `typed_data` is `Some`
+- **THEN** `messages` MUST remain an empty `Value::Array(vec![])`
+- **AND** a `user_message_created` timeline event SHALL be emitted for the canonical timeline
 
-#### Scenario: session actor 从 typed_data 获取消息
-- **WHEN** session actor 收到 `UserTurn` 且 `typed_data` 为 `Some`
-- **THEN** actor SHALL 从 `typed_data` 提取消息，忽略 `messages` 字段
+#### Scenario: session actor still extracts from typed_data
+- **WHEN** the session actor receives `UserTurn` with `typed_data` set
+- **THEN** the actor SHALL extract messages from `typed_data` and ignore the `messages` field
+- **AND** the timeline event emission SHALL NOT depend on the `messages` field being populated

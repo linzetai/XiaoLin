@@ -1,26 +1,27 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Reduced border weight
-StepIndicator card border SHALL use `0.5px solid var(--step-border)` instead of `1px`, or optionally no border at all with only a subtle background hover state.
+StepIndicator visual treatment SHALL apply to `ToolStepNode` rendering from the canonical timeline, using `0.5px solid var(--step-border)` or no border with only a subtle background hover state.
 
-#### Scenario: Step card at rest
-- **WHEN** a completed StepIndicator is rendered without hover
-- **THEN** its border is 0.5px or absent, background is transparent
+#### Scenario: Tool step node at rest
+- **WHEN** a completed `ToolStepNode` is rendered without hover
+- **THEN** its border is 0.5px or absent and its background is transparent
 
-#### Scenario: Step card on hover
-- **WHEN** user hovers over a StepIndicator
+#### Scenario: Tool step node on hover
+- **WHEN** user hovers over a `ToolStepNode`
 - **THEN** background changes to `var(--step-hover-bg)` providing visual feedback
 
 ### Requirement: Reduced vertical spacing
-The gap between consecutive StepIndicator cards (`--step-gap`) SHALL be reduced by 2px from its current value to increase information density.
+The reduced gap between consecutive step indicators SHALL apply to canonical `ToolStepNode` rendering, including when steps are rendered inside an expanded `ToolGroupNode`.
 
-#### Scenario: Multiple tools render compactly
-- **WHEN** three consecutive tool steps render
+#### Scenario: Multiple tool step nodes render compactly
+- **WHEN** three consecutive `ToolStepNode` items render
 - **THEN** the vertical gap between them is 2px less than the previous design
 
 ### Requirement: Subtle running state
-A running StepIndicator SHALL NOT apply a tinted background fill. Instead, only the status dot SHALL animate (spin) to indicate activity.
+A running `ToolStepNode` SHALL NOT apply a tinted background fill. Instead, only the status dot SHALL animate to indicate activity.
 
-#### Scenario: Running tool visual treatment
-- **WHEN** a tool has status "running"
-- **THEN** the card background is transparent (no tint fill), only the 5px status dot spins
+#### Scenario: Running tool step visual treatment
+- **WHEN** a `ToolStepNode` has status "running"
+- **THEN** the card background is transparent with no tint fill
+- **AND** only the status dot animates

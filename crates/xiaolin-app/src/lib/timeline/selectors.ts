@@ -6,7 +6,73 @@ import type {
   TimelineState,
   TurnDisplayNode,
   TurnDisplayNodeKind,
+  UserMessageNode,
 } from "./types";
+
+// ============================================================================
+// Turn grouping for Codex/ChatGPT-style message blocks
+// ============================================================================
+
+/**
+ * A grouped turn for rendering as a message block.
+ *
+ * Each turn has at most one user message and zero or more assistant nodes
+ * (text, reasoning, tool steps, tool groups, approvals, iteration boundaries,
+ * turn status, system notices) in timeline order.
+ */
+export interface TurnGroup {
+  /** Stable key for this contiguous rendered group. */
+  groupId: string;
+  turnId: string;
+  /** The user message that started this turn, if any. */
+  userMessageNode: UserMessageNode | null;
+  /** All assistant-side nodes in timeline order. */
+  assistantNodes: TurnDisplayNode[];
+}
+
+/**
+ * Partition flat TurnDisplayNode[] into turn-grouped message blocks.
+ *
+ * Nodes with kind "user_message" are extracted as the turn's user message.
+ * All other nodes within the same contiguous turn segment are assistant-side
+ * nodes. A turn that receives later detached/interleaved activity creates a
+ * later continuation group, preserving the global timeline order instead of
+ * moving new activity back to the turn's first appearance.
+ */
+export function selectTurnGroups(state: TimelineState): TurnGroup[] {
+  const groups: TurnGroup[] = [];
+  let current: TurnGroup | null = null;
+
+  for (const node of state.nodes) {
+    const needsNewGroup =
+      current == null ||
+      current.turnId !== node.turn_id ||
+      (node.kind === "user_message" &&
+        (current.userMessageNode != null || current.assistantNodes.length > 0));
+
+    if (needsNewGroup) {
+      current = {
+        groupId: `${node.turn_id}:${groups.length}`,
+        turnId: node.turn_id,
+        userMessageNode: null,
+        assistantNodes: [],
+      };
+      groups.push(current);
+    }
+
+    const group = current;
+    if (group == null) {
+      throw new Error("selectTurnGroups invariant violated: missing active group");
+    }
+    if (node.kind === "user_message") {
+      group.userMessageNode = node;
+    } else {
+      group.assistantNodes.push(node);
+    }
+  }
+
+  return groups;
+}
 
 /**
  * Select all display nodes.

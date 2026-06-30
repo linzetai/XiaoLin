@@ -1,11 +1,12 @@
 ## MODIFIED Requirements
 
-### Requirement: Left-line visual style
-Reasoning SHALL be represented as `ReasoningNode` display nodes in the canonical timeline, and the existing left-line visual style SHALL be applied to those nodes in both live and replay states.
+### Requirement: In-place assistant reasoning activity
+Reasoning SHALL be represented as `ReasoningNode` display nodes in the canonical timeline and rendered as subtle in-place assistant-response activity in both live and replay states.
 
-#### Scenario: Streaming reasoning node uses left-line style
+#### Scenario: Streaming reasoning node uses secondary style
 - **WHEN** a `ReasoningNode` is streaming
-- **THEN** the node renders with `border-left: 2px solid var(--tint)`, no outer border or background, and a pulsing 6px dot at the top-left
+- **THEN** the node renders at its timeline position with secondary visual weight, no card-like outer container, and a subtle running indicator
+- **AND** it SHALL NOT be hoisted into a single global thinking panel
 
 ### Requirement: Fixed-height streaming panel with auto-scroll
 The fixed-height streaming panel and auto-scroll behavior SHALL apply to active `ReasoningNode` content.
@@ -30,3 +31,11 @@ The expand/collapse toggle SHALL operate on canonical `ReasoningNode` state and 
 - **WHEN** user expands or collapses a completed `ReasoningNode`
 - **THEN** only that reasoning node's expanded state changes
 - **AND** text, tool, and boundary nodes SHALL retain stable identity
+
+### Requirement: Reasoning segmentation preserves chronology
+Multiple reasoning phases in a turn SHALL preserve their original timeline positions.
+
+#### Scenario: Reasoning before and after a tool
+- **WHEN** reasoning occurs before a tool call and additional reasoning occurs after that tool call
+- **THEN** the UI SHALL render two reasoning segments around the tool activity in the same relative order
+- **AND** consecutive reasoning deltas MAY coalesce only until a visible assistant-response activity boundary occurs

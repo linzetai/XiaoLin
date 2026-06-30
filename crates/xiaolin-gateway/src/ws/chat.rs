@@ -876,8 +876,8 @@ pub async fn spawn_chat(
         // Text/reasoning coalescing: deltas are buffered and flushed at
         // boundaries (before any visible non-text event and terminal turn).
         let _timeline_now_ms = chrono::Utc::now().timestamp_millis();
-        let text_node_id = format!("text-{}", uuid::Uuid::new_v4());
-        let reasoning_node_id = format!("reasoning-{}", uuid::Uuid::new_v4());
+        let mut text_node_id = format!("text-{}", uuid::Uuid::new_v4());
+        let mut reasoning_node_id = format!("reasoning-{}", uuid::Uuid::new_v4());
         let mut timeline_text_buffer = String::new();
         let mut timeline_reasoning_buffer = String::new();
         let mut text_offset: u64 = 0;
@@ -1043,11 +1043,19 @@ pub async fn spawn_chat(
                 .unwrap_or_else(|| "unknown".to_string());
             let timeline_now = chrono::Utc::now().timestamp_millis();
 
-            // Map AgentEvent to timeline events and broadcast
+            // Classify the current event for text/reasoning interleaving.
+            // ContentDelta → flush reasoning first (reasoning appears before text).
+            // Non-empty ReasoningDelta → flush text first (text appears before reasoning).
+            // Tool/iteration/turn boundaries → flush both.
+            let is_content_delta = matches!(&event, AgentEvent::ContentDelta { .. });
+            let is_nonempty_reasoning = matches!(
+                &event,
+                AgentEvent::ReasoningDelta { content, .. } if !content.is_empty()
+            );
+
             let should_flush_text = matches!(
                 &event,
-                AgentEvent::ReasoningDelta { .. }
-                    | AgentEvent::ToolExecuting { .. }
+                AgentEvent::ToolExecuting { .. }
                     | AgentEvent::ToolResult { .. }
                     | AgentEvent::ApprovalRequired { .. }
                     | AgentEvent::IterationBoundary { .. }
@@ -1055,7 +1063,7 @@ pub async fn spawn_chat(
                     | AgentEvent::TurnEnd { .. }
                     | AgentEvent::TurnAborted { .. }
                     | AgentEvent::Error { .. }
-            );
+            ) || is_nonempty_reasoning;
 
             let should_flush_reasoning = matches!(
                 &event,
@@ -1067,7 +1075,7 @@ pub async fn spawn_chat(
                     | AgentEvent::TurnEnd { .. }
                     | AgentEvent::TurnAborted { .. }
                     | AgentEvent::Error { .. }
-            );
+            ) || is_content_delta;
 
             if should_flush_text {
                 // Flush accumulated assistant text as a delta before the boundary event
@@ -1084,6 +1092,8 @@ pub async fn spawn_chat(
                         timeline_now,
                     )
                     .await;
+                    text_node_id = format!("text-{}", uuid::Uuid::new_v4());
+                    text_offset = 0;
                 }
             }
 
@@ -1095,6 +1105,60 @@ pub async fn spawn_chat(
                 );
                 if let Some(candidate) = reasoning_delta {
                     timeline_reasoning_buffer.clear();
+                    send_timeline_event(
+                        &state.store.timeline_store,
+                        &bg_tx,
+                        &session_id,
+                        &timeline_turn_id,
+                        candidate,
+                        timeline_now,
+                    )
+                    .await;
+                    reasoning_node_id = format!("reasoning-{}", uuid::Uuid::new_v4());
+                    reasoning_offset = 0;
+                }
+            }
+
+            // Emit ContentDelta as an immediate assistant_text_delta timeline event
+            // so the frontend can render text in real-time (not buffered until turn end).
+            // Same text_node_id across consecutive ContentDeltas ensures frontend coalescing.
+            if let AgentEvent::ContentDelta { ref delta, .. } = &event {
+                if let Some(text) = delta
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("delta"))
+                    .and_then(|d| d.get("content"))
+                    .and_then(|c| c.as_str())
+                {
+                    if !text.is_empty() {
+                        let candidate = timeline_emit::build_text_delta(
+                            &text_node_id,
+                            text,
+                            text_offset,
+                        );
+                        text_offset += text.len() as u64;
+                        send_timeline_event(
+                            &state.store.timeline_store,
+                            &bg_tx,
+                            &session_id,
+                            &timeline_turn_id,
+                            candidate,
+                            timeline_now,
+                        )
+                        .await;
+                    }
+                }
+            }
+
+            // Emit ReasoningDelta as an immediate reasoning_delta timeline event.
+            if let AgentEvent::ReasoningDelta { content, .. } = &event {
+                if !content.is_empty() {
+                    let candidate = timeline_emit::build_reasoning_delta(
+                        &reasoning_node_id,
+                        content,
+                        reasoning_offset,
+                    );
+                    reasoning_offset += content.len() as u64;
                     send_timeline_event(
                         &state.store.timeline_store,
                         &bg_tx,
@@ -1268,7 +1332,6 @@ pub async fn spawn_chat(
                         last_segment_type = "text";
                     }
                     pending_text_segment.push_str(text);
-                    timeline_text_buffer.push_str(text);
                     assistant_content.push_str(text);
                     if assistant_content.len() > MAX_CONTENT_BYTES {
                         tracing::error!(
@@ -1290,7 +1353,6 @@ pub async fn spawn_chat(
                     segment_order.push("reasoning".to_string());
                     last_segment_type = "reasoning";
                 }
-                timeline_reasoning_buffer.push_str(content);
                 assistant_reasoning.push_str(content);
             }
             let is_done = matches!(&event, AgentEvent::TurnEnd { .. });

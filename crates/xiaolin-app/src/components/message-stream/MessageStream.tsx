@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { useStreamStore } from "../../lib/stores/stream-store";
+import { useTimelineStore } from "../../lib/stores/timeline-store";
 import { useGoalStore } from "../../lib/stores/goal-store";
 import { useSearchStore } from "../../lib/stores/search-store";
 import {
@@ -11,13 +12,13 @@ import {
   useActiveStream,
   useActiveSubAgentRuns,
   useChatLastSegments,
-  useChatMessageSegments,
   useChatUsage,
   useActiveGoal,
 } from "../../lib/stores/selectors";
 import type { Chat } from "../../lib/stores/types";
 import type { MentionInputHandle, MentionOption } from "./MentionInput";
 import { MessageRendererRow } from "./MessageRenderer";
+import { TimelineTranscript } from "./TimelineTranscript";
 
 import { StreamFooter, type AttachedFile } from "./StreamFooter";
 import { ComposerCore } from "./ComposerCore";
@@ -33,11 +34,14 @@ import { GoalStatusCard } from "../chat/GoalStatusCard";
 import { parseTodoResult, type TodoSummary } from "./TodoCard";
 import { ICON_SIZE } from "../../lib/ui-tokens";
 import { useWorkspaceTabs } from "../shell/workspace-tabs";
+import type { TurnDisplayNode } from "../../lib/timeline/types";
 
 interface MessageStreamProps {
   onToggleDetail?: () => void;
   detailOpen?: boolean;
 }
+
+const EMPTY_TIMELINE_NODES: TurnDisplayNode[] = [];
 
 export function MessageStream(_props: MessageStreamProps) {
   const { t } = useTranslation("chat");
@@ -45,10 +49,11 @@ export function MessageStream(_props: MessageStreamProps) {
   const activeAgentId = useChatMetaStore((s) => s.activeAgentId);
   const activeChatId = useActiveChatId();
   const activeChatMeta = useActiveChatMeta();
+  const timelineSessionId = activeChatMeta?.id ?? activeChatId;
   const stream = useActiveStream();
   const subAgentRuns = useActiveSubAgentRuns();
   const lastSegments = useChatLastSegments(activeChatId);
-  const messageSegments = useChatMessageSegments(activeChatId);
+  const timelineNodes = useTimelineStore((s) => s.states[timelineSessionId]?.nodes ?? EMPTY_TIMELINE_NODES);
   const usage = useChatUsage(activeChatId);
   const activeGoal = useActiveGoal();
   const setWorkDirRaw = useChatMetaStore((s) => s.setWorkDir);
@@ -136,6 +141,7 @@ export function MessageStream(_props: MessageStreamProps) {
     if (!activeChatMeta) return;
     const chatId = activeChatMeta.id;
     if (activeChatMeta.messageCount === 0 && stream.length === 0) return;
+    if (timelineNodes.length > 0) return;
     if (stream.length > 0) return;
     if (loadingChats.current.has(chatId)) return;
     if (loadedChats.current.has(chatId)) return;
@@ -161,7 +167,7 @@ export function MessageStream(_props: MessageStreamProps) {
     return () => {
       ac.abort();
     };
-  }, [activeChatMeta?.id, activeChatMeta?.messageCount, stream.length, loadChatStream]);
+  }, [activeChatMeta?.id, activeChatMeta?.messageCount, stream.length, timelineNodes.length, loadChatStream]);
 
   const hydratedSessions = useRef(new Set<string>());
   useEffect(() => {
@@ -685,18 +691,10 @@ export function MessageStream(_props: MessageStreamProps) {
   }, [displayData]);
 
   const getSavedSegments = useCallback((displayIndex: number) => {
-    const item = displayData[displayIndex];
-    if (item && "type" in item && item.type === "message") {
-      const backendId = (item.data as { backendId?: number }).backendId;
-      if (typeof backendId === "number") {
-        const restored = messageSegments[backendId];
-        if (restored) return restored as import("./types").StreamSegment[];
-      }
-    }
     return displayIndex === lastAssistantDisplayIdx
       ? lastSegments as import("./types").StreamSegment[]
       : undefined;
-  }, [displayData, lastAssistantDisplayIdx, lastSegments, messageSegments]);
+  }, [lastAssistantDisplayIdx, lastSegments]);
 
   const todoProgress = useMemo<TodoSummary | null>(() => {
     // Check current streaming segments first (most recent data)
@@ -747,7 +745,7 @@ export function MessageStream(_props: MessageStreamProps) {
     handleMentionSend(lastUserMessage.content, []);
   }, [lastUserMessage, handleMentionSend]);
 
-  const isEmpty = stream.length === 0 && !streaming;
+  const isEmpty = stream.length === 0 && timelineNodes.length === 0 && !streaming;
   const chatSessionId = activeChatMeta?.id ?? "";
   const planFilePath = activeChatMeta?.planFilePath;
   const planFileExists = activeChatMeta?.planFileExists ?? false;
@@ -987,6 +985,14 @@ export function MessageStream(_props: MessageStreamProps) {
               </div>
             )}
             {!hasMore && !hasMoreBackend && <div className="h-8" />}
+            {timelineNodes.length > 0 ? (
+              <TimelineTranscript
+                sessionId={chatSessionId}
+                isLive={streaming}
+                scrollContainerRef={scrollContainerRef}
+                showDiagnostics={false}
+              />
+            ) : (
             <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
               {virtualizer.getVirtualItems().map((virtualItem) => (
                 <div
@@ -1019,6 +1025,7 @@ export function MessageStream(_props: MessageStreamProps) {
                 </div>
               ))}
             </div>
+            )}
             {showFallbackPlanApproval && (
               <div style={{ padding: "8px clamp(24px, 5%, 80px)" }}>
                 <PlanApprovalCard

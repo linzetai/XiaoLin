@@ -73,7 +73,22 @@ export {
   selectTurnIds,
   selectActiveNodes,
   selectEventTypeCounts,
+  selectTurnGroups,
 } from "./selectors";
+export type { TurnGroup } from "./selectors";
+
+export {
+  derivePresentationMode,
+  isAbnormalTurnStatus,
+  isFoldedProcessNode,
+  selectAssistantTurnPresentation,
+} from "./presentation";
+export type {
+  AssistantPresentationItem,
+  AssistantPresentationMode,
+  AssistantProcessNode,
+  AssistantTurnPresentation,
+} from "./presentation";
 
 export {
   normalizeNodeForComparison,
