@@ -14,6 +14,8 @@ import type {
 import { useTimelineStore } from "./timeline-store";
 import * as api from "../api";
 import type { TurnDisplayNode } from "../timeline/types";
+import { reduceTimelineEvents } from "../timeline/reducer";
+import { migrateLegacySessionToTimeline, type LegacyMessage } from "../timeline/legacy-migration";
 
 function unsupportedHistoryNode(chatId: string): TurnDisplayNode {
   const now = Date.now();
@@ -28,6 +30,26 @@ function unsupportedHistoryNode(chatId: string): TurnDisplayNode {
     category: "unsupported_history",
     message: "This session was created before canonical timeline replay and cannot be reconstructed.",
   };
+}
+
+function legacyMessagesFromBackend(messages: BackendMessage[]): LegacyMessage[] {
+  return messages
+    .filter((message) => message.role === "user" || message.role === "assistant" || message.role === "system")
+    .map((message) => ({
+      id: message.id,
+      role: message.role as LegacyMessage["role"],
+      content: typeof message.content === "string" ? message.content : "",
+      timestamp: message.createdAt,
+      reasoningContent: message.reasoningContent ?? undefined,
+      toolCalls: message.toolCallsJson?.map((toolCall) => ({
+        id: toolCall.id,
+        name: toolCall.function.name,
+        status: toolCall.success === false ? "error" : "success",
+        args: toolCall.function.arguments,
+        result: toolCall.display_output ?? toolCall.output,
+        duration: toolCall.duration_ms,
+      })),
+    }));
 }
 
 export const EMPTY_STREAM: StreamItem[] = [];
@@ -198,45 +220,59 @@ export const useStreamStore = create<StreamState>((set) => ({
 
   loadChatStream: (chatId, messages, hasMore) => {
     console.log("[timeline:loadChatStream]", { chatId, msgCount: messages.length, hasMore });
-    if (messages.length > 0) {
-      useTimelineStore.getState().loadNodes(chatId, [unsupportedHistoryNode(chatId)]);
+
+    // Initialize timeline store for this session
+    const timelineStore = useTimelineStore.getState();
+    if (!timelineStore.records[chatId]) {
+      timelineStore.initSession(chatId);
     }
 
-    // Hydrate the canonical timeline store from display nodes.
-    // Legacy message fields are never reconstructed into transcript nodes here.
-    api.getSessionDisplayNodes(chatId).then((page) => {
-      console.log("[timeline:displayNodes]", { chatId, nodeCount: page.nodes?.length ?? 0 });
-      if (page.nodes && page.nodes.length > 0) {
-        // Convert raw nodes to TurnDisplayNode[] and load into timeline store.
-        const nodes = page.nodes.map((raw) => ({
-          ...raw,
-          kind: (raw.kind as string) || "system_notice",
-        })) as import("../timeline/types").TurnDisplayNode[];
-        useTimelineStore.getState().loadNodes(chatId, nodes);
-        console.log("[timeline:displayNodes] loaded", { chatId, nodeCount: nodes.length });
+    // Hydrate the canonical timeline store from timeline events.
+    api.getSessionTimeline(chatId, undefined, 2000).then((tl) => {
+      console.log("[timeline:events]", { chatId, eventCount: tl.events?.length ?? 0 });
+      if (tl.events && tl.events.length > 0) {
+        useTimelineStore.getState().ingestEvents(
+          chatId,
+          tl.events as unknown as import("../timeline/types").TurnTimelineEvent[],
+        );
+        console.log("[timeline:events] loaded", { chatId, eventCount: tl.events.length });
       } else {
-        console.log("[timeline:displayNodes] empty, falling back to timeline events", { chatId });
-        // No display nodes yet — load raw timeline events as fallback.
-        api.getSessionTimeline(chatId, undefined, 2000).then((tl) => {
-          console.log("[timeline:events]", { chatId, eventCount: tl.events?.length ?? 0 });
-          if (tl.events && tl.events.length > 0) {
-            useTimelineStore.getState().loadEvents(
-              chatId,
-              tl.events as unknown as import("../timeline/types").TurnTimelineEvent[],
-            );
-            console.log("[timeline:events] loaded", { chatId, eventCount: tl.events.length });
+        console.warn("[timeline:events] empty, trying display nodes", { chatId });
+        api.getSessionDisplayNodes(chatId).then((page) => {
+          if (page.nodes && page.nodes.length > 0) {
+            const nodes = page.nodes.map((raw) => ({
+              ...raw,
+              kind: (raw.kind as string) || "system_notice",
+            })) as import("../timeline/types").TurnDisplayNode[];
+            const state = {
+              ...useTimelineStore.getState().records[chatId]?.canonical ?? { events: [], nodes: [], maxSeq: 0, sessionId: chatId, turnIndex: {}, eventTraces: {}, nodeIdIndex: {} },
+              nodes,
+            };
+            useTimelineStore.getState().replaceCanonicalTimeline(chatId, state as import("../timeline/types").TimelineState);
           } else {
-            console.warn("[timeline:events] empty, showing unsupported history", { chatId });
-            useTimelineStore.getState().loadNodes(chatId, [unsupportedHistoryNode(chatId)]);
+            const legacyEvents = migrateLegacySessionToTimeline(
+              chatId,
+              legacyMessagesFromBackend(messages),
+            );
+            if (legacyEvents.length > 0) {
+              const state = reduceTimelineEvents(legacyEvents);
+              const timelineStore = useTimelineStore.getState();
+              timelineStore.replaceCanonicalTimeline(chatId, state);
+              timelineStore.setSource(chatId, "legacy");
+            } else {
+              const node = unsupportedHistoryNode(chatId);
+              const state = {
+                events: [], nodes: [node], maxSeq: 0, sessionId: chatId, turnIndex: {}, eventTraces: {}, nodeIdIndex: {},
+              } as import("../timeline/types").TimelineState;
+              useTimelineStore.getState().replaceCanonicalTimeline(chatId, state);
+            }
           }
         }).catch((err) => {
-          console.error("[timeline:events] failed", { chatId, error: err });
-          useTimelineStore.getState().loadNodes(chatId, [unsupportedHistoryNode(chatId)]);
+          console.error("[timeline:displayNodes] failed", { chatId, error: err });
         });
       }
     }).catch((err) => {
-      console.error("[timeline:displayNodes] failed", { chatId, error: err });
-      useTimelineStore.getState().loadNodes(chatId, [unsupportedHistoryNode(chatId)]);
+      console.error("[timeline:events] failed", { chatId, error: err });
     });
 
     set((state) => {

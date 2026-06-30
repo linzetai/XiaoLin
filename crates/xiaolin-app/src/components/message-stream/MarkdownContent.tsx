@@ -17,6 +17,71 @@ interface MarkdownContentProps {
 const remarkPlugins = [remarkGfm];
 const rehypePluginsFull = [rehypeSlug, rehypeHighlightLite];
 const rehypePluginsSlugOnly = [rehypeSlug];
+const FENCE_LANGS = [
+  "typescript", "javascript", "python", "tsx", "jsx", "rust", "bash", "shell",
+  "sh", "zsh", "json", "yaml", "yml", "toml", "html", "css", "scss", "sql",
+  "go", "java", "cpp", "c", "php", "ruby", "markdown", "md", "diff", "text",
+  "txt", "ts", "js", "rs", "py",
+].sort((a, b) => b.length - a.length);
+
+function normalizeMarkdownContent(content: string): string {
+  const lines = content.split("\n");
+  const normalized: string[] = [];
+  let inFence = false;
+  let fenceMarker = "";
+
+  for (const line of lines) {
+    const fence = line.match(/^(\s*)(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      const marker = fence[2][0];
+      if (!inFence) {
+        const repaired = repairFenceOpening(line);
+        normalized.push(...repaired);
+        inFence = true;
+        fenceMarker = marker;
+        continue;
+      }
+      if (marker === fenceMarker) {
+        inFence = false;
+        fenceMarker = "";
+      }
+      normalized.push(line);
+      continue;
+    }
+
+    if (!inFence) {
+      normalized.push(line.replace(/^(#{1,6})([^\s#])/u, "$1 $2"));
+      continue;
+    }
+
+    normalized.push(line);
+  }
+
+  return normalized.join("\n");
+}
+
+function repairFenceOpening(line: string): string[] {
+  const match = line.match(/^(\s*)(`{3,}|~{3,})([A-Za-z][A-Za-z0-9_+.#-]*)(\S.*)$/u);
+  if (!match) return [line];
+
+  const [, indent, fence, info, tail] = match;
+  const lowerInfo = info.toLowerCase();
+  const lang = FENCE_LANGS.find((candidate) => lowerInfo.startsWith(candidate));
+  if (!lang) return [line];
+
+  const rest = info.slice(lang.length) + tail;
+  if (!looksLikeCodeLine(rest)) return [line];
+
+  return [`${indent}${fence}${info.slice(0, lang.length)}`, `${indent}${rest}`];
+}
+
+function looksLikeCodeLine(value: string): boolean {
+  return (
+    /^[A-Za-z_$][\w$]*\s*[?:=.(]/u.test(value) ||
+    /^[{}[\]<]/u.test(value) ||
+    /^(const|let|var|type|interface|function|class|pub|fn|use|import|export)\b/u.test(value)
+  );
+}
 
 function hasUnclosedCodeBlock(text: string): boolean {
   let count = 0;
@@ -278,7 +343,8 @@ export const MarkdownContent = memo(function MarkdownContent({
     return () => cic(id);
   }, [streaming, highlighted]);
 
-  const unclosed = streaming && hasUnclosedCodeBlock(content);
+  const normalizedContent = useMemo(() => normalizeMarkdownContent(content), [content]);
+  const unclosed = streaming && hasUnclosedCodeBlock(normalizedContent);
   const rehypePlugins = useMemo(() => {
     if (streaming) return unclosed ? rehypePluginsSlugOnly : rehypePluginsFull;
     return highlighted ? rehypePluginsFull : rehypePluginsSlugOnly;
@@ -292,7 +358,7 @@ export const MarkdownContent = memo(function MarkdownContent({
         rehypePlugins={rehypePlugins}
         components={components}
       >
-        {content}
+        {normalizedContent}
       </Markdown>
     </div>
   );

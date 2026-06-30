@@ -1,6 +1,5 @@
-import { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { useChatMetaStore } from "../../lib/stores/chat-meta-store";
 import { useStreamStore } from "../../lib/stores/stream-store";
 import { useTimelineStore } from "../../lib/stores/timeline-store";
@@ -17,19 +16,18 @@ import {
 } from "../../lib/stores/selectors";
 import type { Chat } from "../../lib/stores/types";
 import type { MentionInputHandle, MentionOption } from "./MentionInput";
-import { MessageRendererRow } from "./MessageRenderer";
-import { TimelineTranscript } from "./TimelineTranscript";
+import { TimelineTranscript, type TimelineScrollHandle } from "./TimelineTranscript";
 
 import { StreamFooter, type AttachedFile } from "./StreamFooter";
 import { ComposerCore } from "./ComposerCore";
 import { PlanApprovalCard } from "./PlanApprovalCard";
-import { useStreamScroll } from "./useStreamScroll";
 import { useMessageStreamChat } from "./useMessageStreamChat";
 import { X, CaretUp, CaretDown, UploadSimple, MagnifyingGlass, ArrowDown } from "@phosphor-icons/react";
 import * as api from "../../lib/api";
 import * as transport from "../../lib/transport";
 import { StreamEmptyState } from "./StreamEmptyState";
 import { StickyContextBar } from "./StickyContextBar";
+import { PhaseIndicator } from "./ThinkingIndicator";
 import { GoalStatusCard } from "../chat/GoalStatusCard";
 import { parseTodoResult, type TodoSummary } from "./TodoCard";
 import { ICON_SIZE } from "../../lib/ui-tokens";
@@ -46,6 +44,7 @@ const EMPTY_TIMELINE_NODES: TurnDisplayNode[] = [];
 export function MessageStream(_props: MessageStreamProps) {
   const { t } = useTranslation("chat");
   const { t: tCommon } = useTranslation("common");
+  const { t: tSidebar } = useTranslation("sidebar");
   const activeAgentId = useChatMetaStore((s) => s.activeAgentId);
   const activeChatId = useActiveChatId();
   const activeChatMeta = useActiveChatMeta();
@@ -53,17 +52,15 @@ export function MessageStream(_props: MessageStreamProps) {
   const stream = useActiveStream();
   const subAgentRuns = useActiveSubAgentRuns();
   const lastSegments = useChatLastSegments(activeChatId);
-  const timelineNodes = useTimelineStore((s) => s.states[timelineSessionId]?.nodes ?? EMPTY_TIMELINE_NODES);
+  const timelineRecord = useTimelineStore((s) => s.records[timelineSessionId]);
+  const timelineNodes = timelineRecord?.canonical.nodes ?? EMPTY_TIMELINE_NODES;
+  const optimisticTimelineCount = timelineRecord ? Object.keys(timelineRecord.optimisticUsers).length : 0;
   const usage = useChatUsage(activeChatId);
   const activeGoal = useActiveGoal();
   const setWorkDirRaw = useChatMetaStore((s) => s.setWorkDir);
   const loadChatStream = useStreamStore((s) => s.loadChatStream);
-  const prependChatStream = useStreamStore((s) => s.prependChatStream);
-  const setHasMore = useStreamStore((s) => s.setHasMore);
-  const hasMoreBackend = useStreamStore((s) => s.hasMore[activeChatId ?? ""] ?? false);
   const pendingScrollTurnId = useSearchStore((s) => s.pendingScrollTurnId);
   const pendingScrollSessionId = useSearchStore((s) => s.pendingScrollSessionId);
-  const highlightTurnId = useSearchStore((s) => s.highlightTurnId);
   const navError = useSearchStore((s) => s.navError);
   const clearPendingScroll = useSearchStore((s) => s.clearPendingScroll);
   const clearHighlight = useSearchStore((s) => s.clearHighlight);
@@ -180,8 +177,8 @@ export function MessageStream(_props: MessageStreamProps) {
     useChatMetaStore.getState().hydratePlanMeta(sid);
   }, [activeChatMeta?.id]);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const timelineScrollRef = useRef<TimelineScrollHandle>(null);
   const scrollPositions = useRef<Record<string, number>>({});
   const mentionInputRef = useRef<MentionInputHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -203,7 +200,7 @@ export function MessageStream(_props: MessageStreamProps) {
   const [showScrollFab, setShowScrollFab] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [streamDoneLabel, setStreamDoneLabel] = useState(false);
-  const prevStreamLenRef = useRef(stream.length);
+  const prevTimelineNodeCountRef = useRef(timelineNodes.length);
   const prevStreamingRef = useRef(false);
   const chatScrollKey = useCallback((chatId: string | undefined) => {
     if (!chatId) return undefined;
@@ -220,9 +217,6 @@ export function MessageStream(_props: MessageStreamProps) {
     handleMentionSend,
     handleNewTopic,
     atBottomRef,
-    suppressScrollTrackingUntilRef,
-    pendingBottomScrollBehaviorRef,
-    pendingRestoreScrollTopRef,
     runProgrammaticScroll,
   } = useMessageStreamChat({
     activeAgentId,
@@ -255,8 +249,6 @@ export function MessageStream(_props: MessageStreamProps) {
     setSearchOpen(false);
     setSearchQuery("");
   }, []);
-
-  const paginationOffsetRef = useRef(0);
 
   useEffect(() => {
     const handleGlobalKey = (e: KeyboardEvent) => {
@@ -417,13 +409,7 @@ export function MessageStream(_props: MessageStreamProps) {
   }, []);
 
   const chatKey = activeChatMeta?.localKey ?? activeChatId ?? "";
-  const firstVisibleIndexRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const [visibleCount, setVisibleCount] = useState(Number.MAX_SAFE_INTEGER);
-  useEffect(() => {
-    setVisibleCount(Number.MAX_SAFE_INTEGER);
-  }, [chatKey]);
 
   useEffect(() => {
     const key = chatKey;
@@ -442,168 +428,31 @@ export function MessageStream(_props: MessageStreamProps) {
     prevAgentChatKey.current = key;
   }, [chatKey]);
 
-  const hasMore = false;
-  const paginationOffset = 0;
-  paginationOffsetRef.current = paginationOffset;
-  const visibleStream = stream;
-
-  const displayData = useMemo(() => {
-    if (streaming) {
-      return [
-        ...visibleStream,
-        { key: "_streaming_", data: { role: "streaming" as const, content: "", timestamp: new Date() } },
-      ];
-    }
-    return visibleStream;
-  }, [visibleStream, streaming]);
-
-  const getItemKey = useCallback((index: number) => {
-    const item = displayData[index];
-    if (!item) return index;
-    if ("key" in item && (item as { key?: string }).key === "_streaming_") return "_streaming_";
-    if ("type" in item) {
-      const typed = item as { type: string; data: { id: string | number } };
-      if (typed.type === "message") return `msg-${typed.data.id}`;
-      if (typed.type === "brief") return `brief-${typed.data.id}`;
-    }
-    return index;
-  }, [displayData]);
-
-  const virtualizer = useVirtualizer({
-    count: displayData.length,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => 80,
-    getItemKey,
-    overscan: 6,
-    anchorTo: "end",
-    followOnAppend: "smooth",
-    scrollEndThreshold: 120,
-    useFlushSync: false,
-  });
-
-  const virtualizerRef = useRef(virtualizer);
-  virtualizerRef.current = virtualizer;
-
-  const measureElementRef = useCallback((node: Element | null) => {
-    virtualizerRef.current.measureElement(node);
-  }, []);
-
-  useLayoutEffect(() => {
-    virtualizer.scrollToEnd();
-  }, [chatKey]);
-
   useEffect(() => {
     if (!pendingScrollTurnId || !pendingScrollSessionId) return;
     if (activeChatId !== pendingScrollSessionId) return;
-
-    const fullIdx = stream.findIndex(
-      (item) => item.type === "message" && String(item.data.id) === pendingScrollTurnId,
-    );
-    if (fullIdx < 0) return;
-
-    const neededVisible = stream.length - fullIdx;
-    if (neededVisible > visibleCount) {
-      setVisibleCount(neededVisible);
-      return;
-    }
-
-    const visibleIdx = fullIdx - paginationOffsetRef.current;
-    if (visibleIdx < 0 || visibleIdx >= displayData.length) return;
-
     runProgrammaticScroll(() => {
-      virtualizer.scrollToIndex(visibleIdx, { align: "center", behavior: "smooth" });
+      timelineScrollRef.current?.scrollToTurn(pendingScrollTurnId, {
+        align: "center",
+        behavior: "smooth",
+      });
     });
-
     clearPendingScroll();
     setTimeout(() => clearHighlight(), 2800);
   }, [
     pendingScrollTurnId,
     pendingScrollSessionId,
     activeChatId,
-    stream,
-    visibleCount,
-    displayData.length,
-    virtualizer,
     runProgrammaticScroll,
     clearPendingScroll,
     clearHighlight,
   ]);
 
-  const { t: tSidebar } = useTranslation("sidebar");
-
-  const loadingOlderRef = useRef(false);
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const clearLoadingMoreRef = useRef<() => void>(() => {});
-  const onLoadOlderPage = useCallback(() => {
-    if (loadingOlderRef.current) return;
-    const chatId = activeChatId;
-    if (!chatId) return;
-    const currentStream = useStreamStore.getState().streams[chatId] ?? [];
-    const firstItem = currentStream[0];
-    if (!firstItem || firstItem.type !== "message") return;
-    const beforeId = firstItem.data.backendId ?? firstItem.data.id;
-    loadingOlderRef.current = true;
-    setLoadingOlder(true);
-    // Capture scroll anchor so we can restore after prepending.
-    const container = scrollContainerRef.current;
-    const anchorScrollTop = container?.scrollTop ?? 0;
-    const anchorHeight = container?.scrollHeight ?? 0;
-    transport
-      .getSessionMessages(chatId, { beforeId, limit: 30 })
-      .then((page) => {
-        if (!page.messages || page.messages.length === 0) {
-          setHasMore(chatId, false);
-          return;
-        }
-        prependChatStream(chatId, page.messages, page.hasMore);
-        // Preserve scroll position: after prepend the container grew by (newHeight - anchorHeight).
-        requestAnimationFrame(() => {
-          if (container) {
-            const newHeight = container.scrollHeight;
-            const delta = newHeight - anchorHeight;
-            runProgrammaticScroll(() => {
-              container.scrollTop = anchorScrollTop + delta;
-            }, 360);
-          }
-        });
-      })
-      .catch(() => {
-        // Leave hasMoreBackend as-is so user can retry by scrolling again.
-      })
-      .finally(() => {
-        loadingOlderRef.current = false;
-        setLoadingOlder(false);
-        clearLoadingMoreRef.current();
-      });
-  }, [activeChatId, prependChatStream, runProgrammaticScroll, scrollContainerRef, setHasMore]);
-
-  const { handleScroll, handleStartReached: _handleStartReached, clearLoadingMore } = useStreamScroll({
-    virtualizer,
-    scrollContainerRef,
-    scrollPositions,
-    chatKey,
-    displayDataLength: displayData.length,
-    streamLength: stream.length,
-    hasMore,
-    hasMoreBackend,
-    onLoadOlderPage: () => {
-      onLoadOlderPage();
-    },
-    setVisibleCount,
-    paginationOffsetRef,
-    searchIdx,
-    searchResults,
-    atBottomRef,
-    pendingBottomScrollBehaviorRef,
-    pendingRestoreScrollTopRef,
-    suppressScrollTrackingUntilRef,
-    runProgrammaticScroll,
-  });
-  clearLoadingMoreRef.current = clearLoadingMore;
-
   const handleScrollWithAtBottom = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    handleScroll(e);
-    const isAtEnd = virtualizer.isAtEnd();
+    const target = e.currentTarget;
+    const key = chatScrollKey(activeChatId);
+    if (key) scrollPositions.current[key] = target.scrollTop;
+    const isAtEnd = timelineScrollRef.current?.isAtEnd() ?? true;
     const wasAtBottom = atBottomRef.current;
     atBottomRef.current = isAtEnd;
     if (isAtEnd !== wasAtBottom) {
@@ -613,35 +462,35 @@ export function MessageStream(_props: MessageStreamProps) {
         setStreamDoneLabel(false);
       }
     }
-  }, [handleScroll, virtualizer]);
+  }, [activeChatId, atBottomRef, chatScrollKey, scrollPositions]);
 
   useEffect(() => {
-    if (!atBottomRef.current && stream.length > prevStreamLenRef.current) {
-      setUnreadCount((c) => c + (stream.length - prevStreamLenRef.current));
+    if (!atBottomRef.current && timelineNodes.length > prevTimelineNodeCountRef.current) {
+      setUnreadCount((c) => c + (timelineNodes.length - prevTimelineNodeCountRef.current));
     }
-    prevStreamLenRef.current = stream.length;
-  }, [stream.length]);
+    prevTimelineNodeCountRef.current = timelineNodes.length;
+  }, [timelineNodes.length]);
 
   useEffect(() => {
     if (prevStreamingRef.current && !streaming) {
       if (atBottomRef.current) {
-        virtualizer.scrollToEnd({ behavior: "smooth" });
+        timelineScrollRef.current?.scrollToEnd({ behavior: "smooth" });
       } else {
         setShowScrollFab(true);
         setStreamDoneLabel(true);
       }
     }
     prevStreamingRef.current = streaming;
-  }, [streaming, displayData.length]);
+  }, [streaming, timelineNodes.length]);
 
   const scrollToBottom = useCallback(() => {
-    virtualizer.scrollToEnd({ behavior: "smooth" });
+    timelineScrollRef.current?.scrollToEnd({ behavior: "smooth" });
     setTimeout(() => {
       setShowScrollFab(false);
       setUnreadCount(0);
       setStreamDoneLabel(false);
     }, 100);
-  }, [virtualizer]);
+  }, []);
 
   const prevWidthRef = useRef(0);
   useEffect(() => {
@@ -650,23 +499,15 @@ export function MessageStream(_props: MessageStreamProps) {
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width ?? 0;
       if (prevWidthRef.current > 0 && Math.abs(w - prevWidthRef.current) > 2) {
-        const idx = firstVisibleIndexRef.current;
-        requestAnimationFrame(() => {
-          virtualizer.scrollToIndex(idx, { align: "start", behavior: "auto" });
-        });
-      }
+            requestAnimationFrame(() => {
+              timelineScrollRef.current?.scrollToEnd({ behavior: "auto" });
+            });
+          }
       prevWidthRef.current = w;
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [chatKey, virtualizer]);
-
-  const visibleRange = virtualizer.range ?? { startIndex: 0, endIndex: 0 };
-  useEffect(() => {
-    if (visibleRange) {
-      firstVisibleIndexRef.current = visibleRange.startIndex;
-    }
-  }, [visibleRange?.startIndex]);
+  }, [chatKey]);
 
   const lastUserMessage = useMemo(() => {
     for (let i = stream.length - 1; i >= 0; i--) {
@@ -675,26 +516,6 @@ export function MessageStream(_props: MessageStreamProps) {
     }
     return null;
   }, [stream]);
-
-  const lastUserDisplayIndex = useMemo(() => {
-    if (!lastUserMessage) return -1;
-    const globalIdx = lastUserMessage.index;
-    return globalIdx - paginationOffset;
-  }, [lastUserMessage, paginationOffset]);
-
-  const lastAssistantDisplayIdx = useMemo(() => {
-    for (let i = displayData.length - 1; i >= 0; i--) {
-      const it = displayData[i];
-      if ("type" in it && it.type === "message" && (it.data as { role: string }).role === "assistant") return i;
-    }
-    return -1;
-  }, [displayData]);
-
-  const getSavedSegments = useCallback((displayIndex: number) => {
-    return displayIndex === lastAssistantDisplayIdx
-      ? lastSegments as import("./types").StreamSegment[]
-      : undefined;
-  }, [lastAssistantDisplayIdx, lastSegments]);
 
   const todoProgress = useMemo<TodoSummary | null>(() => {
     // Check current streaming segments first (most recent data)
@@ -727,12 +548,8 @@ export function MessageStream(_props: MessageStreamProps) {
 
   const showContextBar = useMemo(() => {
     if (!lastUserMessage) return false;
-    if (streaming) return true;
-    if (lastUserDisplayIndex >= 0) {
-      return lastUserDisplayIndex < visibleRange.startIndex || lastUserDisplayIndex > visibleRange.endIndex;
-    }
-    return lastUserDisplayIndex < 0;
-  }, [lastUserMessage, streaming, lastUserDisplayIndex, visibleRange]);
+    return streaming && !atBottomRef.current;
+  }, [lastUserMessage, streaming, atBottomRef]);
 
   const handleEditFromBar = useCallback(() => {
     if (!lastUserMessage) return;
@@ -745,7 +562,9 @@ export function MessageStream(_props: MessageStreamProps) {
     handleMentionSend(lastUserMessage.content, []);
   }, [lastUserMessage, handleMentionSend]);
 
-  const isEmpty = stream.length === 0 && timelineNodes.length === 0 && !streaming;
+  const timelineRenderableCount = timelineNodes.length + optimisticTimelineCount;
+  const showPreTokenFallback = streaming && timelineRenderableCount === 0;
+  const isEmpty = stream.length === 0 && timelineRenderableCount === 0 && !streaming;
   const chatSessionId = activeChatMeta?.id ?? "";
   const planFilePath = activeChatMeta?.planFilePath;
   const planFileExists = activeChatMeta?.planFileExists ?? false;
@@ -970,61 +789,18 @@ export function MessageStream(_props: MessageStreamProps) {
             style={{ overflowX: "hidden", overflowY: "auto" }}
             onScroll={handleScrollWithAtBottom}
           >
-            {hasMore && (
-              <div className="m-prev flex h-8 cursor-pointer items-center justify-center">
-                <span className="text-[13px] transition-colors" style={{ color: "var(--fill-tertiary)" }}>
-                  {paginationOffset} previous messages ›
-                </span>
+            <div className="h-8" />
+            <TimelineTranscript
+              ref={timelineScrollRef}
+              sessionId={chatSessionId}
+              isLive={streaming}
+              scrollContainerRef={scrollContainerRef}
+              showDiagnostics={false}
+            />
+            {showPreTokenFallback && (
+              <div style={{ padding: "0 clamp(24px, 5%, 80px)" }}>
+                <PhaseIndicator phase="connecting" />
               </div>
-            )}
-            {!hasMore && hasMoreBackend && (
-              <div className="m-prev flex h-8 cursor-pointer items-center justify-center">
-                <span className="text-[13px] transition-colors" style={{ color: "var(--fill-tertiary)" }}>
-                  {loadingOlder ? "Loading older messages…" : "Load older messages ›"}
-                </span>
-              </div>
-            )}
-            {!hasMore && !hasMoreBackend && <div className="h-8" />}
-            {timelineNodes.length > 0 ? (
-              <TimelineTranscript
-                sessionId={chatSessionId}
-                isLive={streaming}
-                scrollContainerRef={scrollContainerRef}
-                showDiagnostics={false}
-              />
-            ) : (
-            <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
-              {virtualizer.getVirtualItems().map((virtualItem) => (
-                <div
-                  key={virtualItem.key}
-                  ref={measureElementRef}
-                  data-index={virtualItem.index}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translate3d(0, ${Math.round(virtualItem.start)}px, 0)`,
-                    willChange: "transform",
-                  }}
-                >
-                  <MessageRendererRow
-                    item={displayData[virtualItem.index]}
-                    idx={virtualItem.index}
-                    paginationOffset={paginationOffset}
-                    searchQuery={searchQuery}
-                    searchIdx={searchIdx}
-                    searchResults={searchResults}
-                    streamSegments={streamSegments}
-                    subAgentRuns={subAgentRuns}
-                    bottomRef={bottomRef}
-                    lastSegments={getSavedSegments(virtualItem.index)}
-                    highlightTurnId={highlightTurnId}
-                    executionMode={executionMode}
-                  />
-                </div>
-              ))}
-            </div>
             )}
             {showFallbackPlanApproval && (
               <div style={{ padding: "8px clamp(24px, 5%, 80px)" }}>

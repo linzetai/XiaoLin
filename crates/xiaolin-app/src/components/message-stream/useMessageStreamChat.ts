@@ -319,6 +319,17 @@ export function useMessageStreamChat({
     const currentAgent = metaState.agents.find((a) => a.id === capturedAgentId);
     const capturedChatId = metaState.activeChatId;
     const currentActiveChat = metaState.chats[capturedChatId];
+    const clientMessageId = globalThis.crypto?.randomUUID?.()
+      ?? `client-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    useTimelineStore.getState().initSession(capturedChatId);
+    useTimelineStore.getState().upsertOptimisticUser(capturedChatId, {
+      clientMessageId,
+      localTurnId: `optimistic-turn-${clientMessageId}`,
+      content: txt + mentionDesc + fileDesc,
+      attachments: attachedFilesRef.current.map((file) => file.name),
+      createdAtMs: Date.now(),
+      status: "sending",
+    });
 
     addMessage({
       role: "user",
@@ -391,6 +402,7 @@ export function useMessageStreamChat({
         responseLanguage: resolvedLang,
         goalMode: options?.goalMode,
         executionMode: options?.goalMode ? undefined : chatExecutionMode,
+        clientMessageId,
       },
       (event) => {
         switch (event.type) {
@@ -1098,7 +1110,26 @@ export function useMessageStreamChat({
             const d = event.data as Record<string, unknown> | undefined;
             if (d?.session_id && d?.id && d?.seq != null) {
               const resolvedChatId = (d.session_id as string) || capturedChatId;
-              useTimelineStore.getState().addEvent(resolvedChatId, d as unknown as import("../../lib/timeline/types").TurnTimelineEvent);
+              const timelineStore = useTimelineStore.getState();
+              timelineStore.initSession(resolvedChatId);
+              timelineStore.ingestEvent(resolvedChatId, d as unknown as import("../../lib/timeline/types").TurnTimelineEvent);
+            }
+            break;
+          }
+          case "tool_output_patch": {
+            const d = event.data as Record<string, unknown> | undefined;
+            const sessionId = (d?.session_id as string | undefined) || capturedChatId;
+            const callId = d?.call_id as string | undefined;
+            const content = d?.partial_output as string | undefined;
+            if (callId && content != null) {
+              const timelineStore = useTimelineStore.getState();
+              timelineStore.initSession(sessionId);
+              timelineStore.upsertToolOutputPatch(sessionId, {
+                callId,
+                content,
+                truncated: Boolean(d?.truncated),
+                updatedAtMs: (d?.updated_at_ms as number | undefined) ?? Date.now(),
+              });
             }
             break;
           }
@@ -1117,6 +1148,14 @@ export function useMessageStreamChat({
         setStreamSegments([]);
       }
       const errMsg = err instanceof Error ? err.message : t("connectionFailed");
+      useTimelineStore.getState().upsertOptimisticUser(capturedChatId, {
+        clientMessageId,
+        localTurnId: `optimistic-turn-${clientMessageId}`,
+        content: txt + mentionDesc + fileDesc,
+        attachments: attachedFilesRef.current.map((file) => file.name),
+        createdAtMs: Date.now(),
+        status: "failed",
+      });
       addMessage({ role: "system", content: t("error_prefix", { message: errMsg }), timestamp: new Date() }, capturedChatId);
       cleanup();
     });

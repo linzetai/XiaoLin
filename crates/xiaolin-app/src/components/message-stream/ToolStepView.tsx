@@ -22,6 +22,7 @@ import type {
 import { SMALL_OUTPUT_MAX_BYTES, SMALL_OUTPUT_MAX_LINES, SMALL_OUTPUT_MAX_TOKENS } from "../../lib/timeline/types";
 import * as api from "../../lib/api";
 import { ICON_SIZE } from "../../lib/ui-tokens";
+import { useTimelineStore } from "../../lib/stores/timeline-store";
 
 // ============================================================================
 // Icons by tool category
@@ -63,8 +64,72 @@ function tryPrettyJson(text: string): string {
 
 function extractKeyInfo(node: ToolStepNode): string | null {
   const t = node.target;
-  if (!t) return null;
-  return t.path ?? t.command ?? t.url ?? t.query ?? t.label ?? null;
+  return t?.path ?? t?.command ?? t?.url ?? t?.query ?? t?.label ?? readStringArg(node.args, "command") ?? readStringArg(node.args, "file_path") ?? readStringArg(node.args, "path") ?? readStringArg(node.args, "query") ?? null;
+}
+
+function readStringArg(args: string | undefined, key: string): string | undefined {
+  if (!args) return undefined;
+  try {
+    const parsed = JSON.parse(args) as Record<string, unknown>;
+    const value = parsed[key];
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function semanticToolAction(node: ToolStepNode): string {
+  const target = extractKeyInfo(node);
+  const name = node.tool_name.toLowerCase();
+  const command = node.target?.command ?? readStringArg(node.args, "command") ?? "";
+  const prefix = node.status === "running" || node.status === "pending"
+    ? "正在"
+    : node.status === "failed" || node.status === "cancelled"
+      ? "未完成"
+      : "已";
+
+  if (node.tool_category === "file" || name.includes("read")) return `${prefix}读取`;
+  if (node.tool_category === "search" || name.includes("grep") || name.includes("rg")) return `${prefix}搜索`;
+  if (node.tool_category === "shell") {
+    if (command.startsWith("git diff")) return `${prefix}检查改动`;
+    if (command.startsWith("git status")) return `${prefix}检查仓库状态`;
+    if (command.includes("test")) return `${prefix}运行测试`;
+    if (command.includes("build")) return `${prefix}构建`;
+    return `${prefix}运行命令`;
+  }
+  if (node.tool_category === "sub_agent") return `${prefix}调用子代理`;
+  if (node.tool_category === "web") return `${prefix}查询网页`;
+  if (node.tool_category === "mcp") return `${prefix}调用连接应用`;
+  return target ? `${prefix}处理` : (node.display_title || node.tool_name);
+}
+
+function semanticToolTitleForRow(node: ToolStepNode, presentationTitle?: string): string {
+  if (presentationTitle) return presentationTitle;
+
+  const isRunning = node.status === "running" || node.status === "pending";
+  const isFailed = node.status === "failed" || node.status === "cancelled";
+  const target = extractKeyInfo(node);
+  const command = node.target?.command ?? readStringArg(node.args, "command") ?? "";
+
+  if (isFailed && node.tool_category === "shell") return "命令执行失败";
+  if (isRunning && node.tool_category === "shell" && command) {
+    if (/\btest\b/.test(command)) return "正在运行测试";
+    if (/\b(build|check|clippy|lint)\b/.test(command)) return "正在验证构建";
+    return "正在执行";
+  }
+
+  if (node.tool_category === "file" || node.tool_name.toLowerCase().includes("read")) {
+    const label = target ? basename(target) : "";
+    if (isRunning) return label ? `正在读取 ${label}` : "正在读取文件";
+    if (node.status === "completed") return label ? `已读取 ${label}` : "已读取文件";
+  }
+
+  return semanticToolAction(node);
+}
+
+function basename(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  return normalized.split("/").filter(Boolean).pop() ?? path;
 }
 
 // ============================================================================
@@ -94,7 +159,7 @@ function CommandOutputView({ content }: { content: string }) {
         color: "var(--fill-secondary)",
         border: "0.5px solid var(--separator)",
         fontFamily: "var(--font-mono)",
-        maxHeight: 280,
+        maxHeight: 200,
         overflowY: "auto",
       }}
     >
@@ -140,7 +205,7 @@ function JsonView({ content }: { content: string }) {
         color: "var(--fill-secondary)",
         border: "0.5px solid var(--separator)",
         fontFamily: "var(--font-mono)",
-        maxHeight: 280,
+        maxHeight: 200,
         overflowY: "auto",
       }}
     >
@@ -182,7 +247,7 @@ function TextOutputView({ content }: { content: string }) {
         color: "var(--fill-secondary)",
         border: "0.5px solid var(--separator)",
         fontFamily: "var(--font-mono)",
-        maxHeight: 280,
+        maxHeight: 200,
         overflowY: "auto",
       }}
     >
@@ -452,6 +517,9 @@ export const ToolStepView = memo(function ToolStepView({
 }: ToolStepViewProps) {
   const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
+  const livePatch = useTimelineStore((s) =>
+    sessionId ? s.records[sessionId]?.toolOutputPatches[node.call_id] : undefined,
+  );
 
   const isRunning = node.status === "running";
   const isFailed = node.status === "failed";
@@ -459,7 +527,11 @@ export const ToolStepView = memo(function ToolStepView({
   const isError = isFailed || isCancelled;
   const isCompleted = node.status === "completed";
 
-  const keyInfo = useMemo(() => extractKeyInfo(node), [node.target]);
+  const keyInfo = useMemo(() => extractKeyInfo(node), [node]);
+  const actionTitle = useMemo(
+    () => semanticToolTitleForRow(node, presentationTitle),
+    [node, presentationTitle],
+  );
   const canExpand = !!(
     node.args ||
     node.output_preview ||
@@ -549,7 +621,7 @@ export const ToolStepView = memo(function ToolStepView({
             className="min-w-0 truncate font-medium"
             style={{ color: isError ? "var(--red)" : "var(--fill-secondary)" }}
           >
-            {presentationTitle ?? node.display_title}
+            {actionTitle}
           </span>
           {keyInfo && (
             <span
@@ -602,6 +674,15 @@ export const ToolStepView = memo(function ToolStepView({
               {node.progress_label}
             </span>
           )}
+        </div>
+      )}
+
+      {isRunning && livePatch?.content && (
+        <div className="ml-[54px] pb-1">
+          <StructuredOutput
+            content={livePatch.content}
+            contentType="command_output"
+          />
         </div>
       )}
 

@@ -20,10 +20,10 @@
 
 use sqlx::sqlite::SqlitePool;
 use xiaolin_protocol::{
-    ApprovalNode, AssistantTextNode, IterationBoundaryNode, NodeStatus, ReasoningNode,
-    SourceEventTrace, SystemNoticeNode, TerminalDiagnosisMetadata, TimelineEventId,
-    TimelineEventType, ToolCategory, ToolStepNode, TurnDisplayNode, TurnStatusNode,
-    TurnTimelineEvent, UserMessageNode,
+    ApprovalNode, AssistantTextNode, IterationBoundaryNode, NodeStatus, ReasoningDeltaPayload,
+    ReasoningNode, ReasoningSnapshotPayload, ReasoningVisibility, SourceEventTrace,
+    SystemNoticeNode, TerminalDiagnosisMetadata, TimelineEventId, TimelineEventType, ToolCategory,
+    ToolStepNode, TurnDisplayNode, TurnStatusNode, TurnTimelineEvent, UserMessageNode,
 };
 
 const DEFAULT_PAGE_LIMIT: i64 = 500;
@@ -105,6 +105,7 @@ impl TimelineStore {
         if event_type_str == "__unknown__" {
             anyhow::bail!("cannot persist unknown timeline event type");
         }
+        ensure_reasoning_is_public(event_type, payload_json)?;
         let payload_str = serde_json::to_string(payload_json)?;
         let event_id_str = event_id.as_str();
 
@@ -364,6 +365,31 @@ fn timeline_event_type_to_str(t: TimelineEventType) -> &'static str {
     }
 }
 
+fn ensure_reasoning_is_public(
+    event_type: TimelineEventType,
+    payload_json: &serde_json::Value,
+) -> anyhow::Result<()> {
+    match event_type {
+        TimelineEventType::ReasoningDelta => {
+            let payload: ReasoningDeltaPayload = serde_json::from_value(payload_json.clone())?;
+            if payload.visibility == Some(ReasoningVisibility::Public) {
+                Ok(())
+            } else {
+                anyhow::bail!("refusing to persist non-public reasoning_delta timeline event")
+            }
+        }
+        TimelineEventType::ReasoningSnapshot => {
+            let payload: ReasoningSnapshotPayload = serde_json::from_value(payload_json.clone())?;
+            if payload.visibility == Some(ReasoningVisibility::Public) {
+                Ok(())
+            } else {
+                anyhow::bail!("refusing to persist non-public reasoning_snapshot timeline event")
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
 fn str_to_timeline_event_type(s: &str) -> anyhow::Result<TimelineEventType> {
     match s {
         "turn_started" => Ok(TimelineEventType::TurnStarted),
@@ -481,6 +507,7 @@ pub fn materialize_events_to_nodes(events: &[TurnTimelineEvent]) -> Vec<TurnDisp
                         updated_at_ms: event.created_at_ms,
                         content: p.content,
                         byte_length: p.byte_length,
+                        text_role: p.text_role,
                         source_trace: Some(SourceEventTrace {
                             event_ids: evt_ids,
                             min_seq,
@@ -494,6 +521,17 @@ pub fn materialize_events_to_nodes(events: &[TurnTimelineEvent]) -> Vec<TurnDisp
                 if let Ok(p) = serde_json::from_value::<xiaolin_protocol::ReasoningDeltaPayload>(
                     event.payload_json.clone(),
                 ) {
+                    // Private reasoning: skip entirely (safety: never materialize)
+                    if p.visibility
+                        .as_ref()
+                        .is_some_and(|v| matches!(v, ReasoningVisibility::Private))
+                    {
+                        continue;
+                    }
+                    // Missing visibility in v2 schema: skip (safety default)
+                    if p.visibility.is_none() {
+                        continue;
+                    }
                     if !p.delta.is_empty() {
                         if current_delta_node_id(&reasoning_buf).is_some_and(|id| id != p.node_id) {
                             flush_reasoning(&mut reasoning_buf, &mut nodes);
@@ -515,6 +553,17 @@ pub fn materialize_events_to_nodes(events: &[TurnTimelineEvent]) -> Vec<TurnDisp
                 if let Ok(p) = serde_json::from_value::<xiaolin_protocol::ReasoningSnapshotPayload>(
                     event.payload_json.clone(),
                 ) {
+                    // Private reasoning: skip entirely
+                    if p.visibility
+                        .as_ref()
+                        .is_some_and(|v| matches!(v, ReasoningVisibility::Private))
+                    {
+                        continue;
+                    }
+                    // Missing visibility: skip (safety default)
+                    if p.visibility.is_none() {
+                        continue;
+                    }
                     flush_reasoning(&mut reasoning_buf, &mut nodes);
                     nodes.push(TurnDisplayNode::Reasoning(ReasoningNode {
                         node_id: p.node_id,
@@ -524,6 +573,7 @@ pub fn materialize_events_to_nodes(events: &[TurnTimelineEvent]) -> Vec<TurnDisp
                         updated_at_ms: event.created_at_ms,
                         content: p.content,
                         collapsed: true,
+                        visibility: p.visibility,
                         source_trace: Some(SourceEventTrace {
                             event_ids: evt_ids,
                             min_seq,
@@ -587,11 +637,13 @@ pub fn materialize_events_to_nodes(events: &[TurnTimelineEvent]) -> Vec<TurnDisp
                     event.payload_json.clone(),
                 ) {
                     update_tool_step(&mut nodes, &p.call_id, |step| {
-                        step.status = if p.success {
+                        // Late tool_call_finished after turn_finished: override cancelled with real result
+                        let new_status = if p.success {
                             NodeStatus::Completed
                         } else {
                             NodeStatus::Failed
                         };
+                        step.status = new_status;
                         step.finished_at_ms = Some(event.created_at_ms);
                         step.duration_ms = p.duration_ms;
                         step.updated_at_ms = event.created_at_ms;
@@ -676,6 +728,27 @@ pub fn materialize_events_to_nodes(events: &[TurnTimelineEvent]) -> Vec<TurnDisp
                 if let Ok(p) = serde_json::from_value::<xiaolin_protocol::TurnFinishedPayload>(
                     event.payload_json.clone(),
                 ) {
+                    // Cancel all running/pending tools in this turn
+                    let turn_id = &event.turn_id;
+                    for node in nodes.iter_mut().rev() {
+                        if let TurnDisplayNode::ToolStep(ref mut step) = node {
+                            if &step.turn_id == turn_id
+                                && (step.status == NodeStatus::Running
+                                    || step.status == NodeStatus::Pending)
+                            {
+                                step.status = NodeStatus::Cancelled;
+                                step.updated_at_ms = event.created_at_ms;
+                            }
+                        }
+                        if let TurnDisplayNode::Approval(ref mut approval) = node {
+                            if &approval.turn_id == turn_id
+                                && approval.status == NodeStatus::Pending
+                            {
+                                approval.status = NodeStatus::Cancelled;
+                                approval.updated_at_ms = event.created_at_ms;
+                            }
+                        }
+                    }
                     if p.end_reason != "completed" {
                         nodes.push(TurnDisplayNode::TurnStatus(TurnStatusNode {
                             node_id: format!("node-tstat-{}", event.id.as_str()),
@@ -691,9 +764,9 @@ pub fn materialize_events_to_nodes(events: &[TurnTimelineEvent]) -> Vec<TurnDisp
                                 user_message: p.user_message,
                                 iterations: p.iterations,
                                 tool_calls: p.tool_calls,
-                                repeated_force_stops: None,
-                                repeated_warns: None,
-                                no_progress_count: None,
+                                repeated_force_stops: p.repeated_force_stops,
+                                repeated_warns: p.repeated_warns,
+                                no_progress_count: p.no_progress_count,
                             }),
                             elapsed_ms: p.elapsed_ms,
                             source_trace: Some(SourceEventTrace {
@@ -834,6 +907,7 @@ fn flush_text(buf: &mut Option<DeltaBuf>, nodes: &mut Vec<TurnDisplayNode>) {
                 updated_at_ms: u_at,
                 content,
                 byte_length: byte_len,
+                text_role: None,
                 source_trace: Some(SourceEventTrace {
                     event_ids: eids,
                     min_seq: mn,
@@ -855,6 +929,7 @@ fn flush_reasoning(buf: &mut Option<DeltaBuf>, nodes: &mut Vec<TurnDisplayNode>)
                 updated_at_ms: u_at,
                 content,
                 collapsed: true,
+                visibility: None,
                 source_trace: Some(SourceEventTrace {
                     event_ids: eids,
                     min_seq: mn,
@@ -1723,7 +1798,8 @@ mod tests {
         let store = make_store().await;
         store
             .append(
-                "s1", "t1",
+                "s1",
+                "t1",
                 &TimelineEventId::new("a"),
                 TimelineEventType::UserMessageCreated,
                 &serde_json::json!({"content": "t1"}),
@@ -1744,7 +1820,8 @@ mod tests {
         assert_eq!(store.count("s1").await.unwrap(), 0);
         store
             .append(
-                "s1", "t1",
+                "s1",
+                "t1",
                 &TimelineEventId::new("a"),
                 TimelineEventType::SystemNotice,
                 &serde_json::json!({}),
@@ -1755,7 +1832,8 @@ mod tests {
         assert_eq!(store.count("s1").await.unwrap(), 1);
         store
             .append(
-                "s1", "t1",
+                "s1",
+                "t1",
                 &TimelineEventId::new("b"),
                 TimelineEventType::SystemNotice,
                 &serde_json::json!({}),
@@ -1774,7 +1852,7 @@ mod tests {
                 "s1", "t1",
                 &TimelineEventId::new("r"),
                 TimelineEventType::ReasoningSnapshot,
-                &serde_json::json!({"node_id": "r1", "content": "Let me think."}),
+                &serde_json::json!({"node_id": "r1", "content": "Let me think.", "visibility": "public"}),
                 1000,
             )
             .await
@@ -1836,7 +1914,8 @@ mod tests {
         for i in 0..3 {
             store
                 .append(
-                    "s1", "t1",
+                    "s1",
+                    "t1",
                     &TimelineEventId::new(format!("e{i}")),
                     TimelineEventType::SystemNotice,
                     &serde_json::json!({"i": i}),
@@ -1849,7 +1928,10 @@ mod tests {
         let page = store.query_by_session("s1", None, Some(0)).await.unwrap();
         assert_eq!(page.len(), 1);
         // Clamp to max 1000 — limit=2000 should clamp to 1000
-        let page = store.query_by_session("s1", None, Some(2000)).await.unwrap();
+        let page = store
+            .query_by_session("s1", None, Some(2000))
+            .await
+            .unwrap();
         assert_eq!(page.len(), 3);
     }
 
@@ -1858,7 +1940,8 @@ mod tests {
         let store = make_store().await;
         store
             .append(
-                "s1", "t1",
+                "s1",
+                "t1",
                 &TimelineEventId::new("e1"),
                 TimelineEventType::SystemNotice,
                 &serde_json::json!({}),
@@ -1869,7 +1952,10 @@ mod tests {
         // after_seq=None → uses 0
         let p1 = store.query_by_session("s1", None, Some(10)).await.unwrap();
         // after_seq=Some(0) → same result
-        let p2 = store.query_by_session("s1", Some(0), Some(10)).await.unwrap();
+        let p2 = store
+            .query_by_session("s1", Some(0), Some(10))
+            .await
+            .unwrap();
         assert_eq!(p1.len(), p2.len());
     }
 
@@ -1905,7 +1991,10 @@ mod tests {
 
         let nodes = store.materialize_display_nodes("s1").await.unwrap();
         // Request + resolved should merge into a single Approval node
-        let approvals: Vec<_> = nodes.iter().filter(|n| matches!(n, TurnDisplayNode::Approval(_))).collect();
+        let approvals: Vec<_> = nodes
+            .iter()
+            .filter(|n| matches!(n, TurnDisplayNode::Approval(_)))
+            .collect();
         assert_eq!(approvals.len(), 1);
         if let TurnDisplayNode::Approval(a) = &approvals[0] {
             assert_eq!(a.decision.as_deref(), Some("allow_once"));
@@ -1919,7 +2008,8 @@ mod tests {
         // Start with a text delta (creates pending node)
         store
             .append(
-                "s1", "t1",
+                "s1",
+                "t1",
                 &TimelineEventId::new("txt"),
                 TimelineEventType::AssistantTextDelta,
                 &serde_json::json!({"node_id": "n1", "delta": "Streaming..."}),
@@ -1930,7 +2020,8 @@ mod tests {
         // End the turn normally
         store
             .append(
-                "s1", "t1",
+                "s1",
+                "t1",
                 &TimelineEventId::new("end"),
                 TimelineEventType::TurnFinished,
                 &serde_json::json!({"end_reason": "completed"}),

@@ -6,7 +6,7 @@
 
 import { useTimelineStore } from "../stores/timeline-store";
 import * as api from "../api";
-import type { TurnTimelineEvent, TurnDisplayNode } from "./types";
+import type { TurnTimelineEvent } from "./types";
 
 /** Maximum sequence gap before falling back to full reload. */
 const MAX_RECONNECT_GAP = 500;
@@ -25,7 +25,8 @@ export async function recoverTimelineAfterReconnect(
   sessionId: string,
 ): Promise<boolean> {
   const store = useTimelineStore.getState();
-  const lastSeen = store.lastSeenSeq[sessionId] ?? 0;
+  const rec = store.records[sessionId];
+  const lastContiguousSeq = rec?.lastContiguousSeq ?? 0;
 
   try {
     // 1. Get max_seq from backend
@@ -33,28 +34,18 @@ export async function recoverTimelineAfterReconnect(
     const backendMax = maxSeqResp.max_seq ?? 0;
 
     // 2. No gap — nothing to do
-    if (lastSeen >= backendMax) {
+    if (lastContiguousSeq >= backendMax) {
       return true;
     }
 
     // 3. Check gap size
-    const gap = backendMax - lastSeen;
-    if (gap > MAX_RECONNECT_GAP || lastSeen === 0) {
-      // Large gap or no local state — fall back to full display-node reload
-      const displayResp = await api.getSessionDisplayNodes(sessionId);
-      if (displayResp.nodes && displayResp.nodes.length > 0) {
-        const nodes = displayResp.nodes.map((raw) => ({
-          ...raw,
-          kind: (raw.kind as string) || "system_notice",
-        })) as TurnDisplayNode[];
-        useTimelineStore.getState().loadNodes(sessionId, nodes, backendMax);
-        return true;
-      }
-
-      // No display nodes — try raw events
+    const gap = backendMax - lastContiguousSeq;
+    if (gap > MAX_RECONNECT_GAP || lastContiguousSeq === 0) {
+      // Large gap or no local state — fetch full timeline events
       const tlResp = await api.getSessionTimeline(sessionId, undefined, 2000);
       if (tlResp.events && tlResp.events.length > 0) {
-        useTimelineStore.getState().loadEvents(
+        store.initSession(sessionId);
+        store.ingestEvents(
           sessionId,
           tlResp.events as unknown as TurnTimelineEvent[],
         );
@@ -64,15 +55,15 @@ export async function recoverTimelineAfterReconnect(
       return false;
     }
 
-    // 4. Small gap — fetch incremental events
-    const tlResp = await api.getSessionTimeline(sessionId, lastSeen, gap + 50);
+    // 4. Small gap — fetch incremental events from lastContiguousSeq
+    const tlResp = await api.getSessionTimeline(sessionId, lastContiguousSeq, gap + 50);
     if (tlResp.events && tlResp.events.length > 0) {
-      useTimelineStore.getState().loadEvents(
+      store.ingestEvents(
         sessionId,
         tlResp.events as unknown as TurnTimelineEvent[],
       );
     } else {
-      useTimelineStore.getState().setLastSeenSeq(sessionId, backendMax);
+      store.setLastSeenSeq(sessionId, backendMax);
     }
 
     return true;
@@ -92,22 +83,26 @@ export async function initTimelineForSession(
   const store = useTimelineStore.getState();
 
   // Initialize if not already present
-  if (!store.states[sessionId]) {
+  if (!store.records[sessionId]) {
     store.initSession(sessionId);
   }
 
-  // Try to load existing display nodes (for history sessions)
+  // Full pagination probe: fetch all timeline events
   try {
-    const maxSeqResp = await api.getTimelineMaxSeq(sessionId);
-    const backendMax = maxSeqResp.max_seq ?? 0;
-    const displayResp = await api.getSessionDisplayNodes(sessionId);
-    if (displayResp.nodes && displayResp.nodes.length > 0) {
-      const nodes = displayResp.nodes.map((raw) => ({
-        ...raw,
-        kind: (raw.kind as string) || "system_notice",
-      })) as TurnDisplayNode[];
-      useTimelineStore.getState().loadNodes(sessionId, nodes, backendMax);
+    store.startProbe(sessionId);
+    const allEvents: TurnTimelineEvent[] = [];
+    let afterSeq = 0;
+    const limit = 500;
+
+    while (true) {
+      const page = await api.getSessionTimeline(sessionId, afterSeq, limit);
+      if (!page?.events?.length) break;
+      allEvents.push(...(page.events as unknown as TurnTimelineEvent[]));
+      if (page.events.length < limit) break;
+      afterSeq = (page.events[page.events.length - 1] as unknown as TurnTimelineEvent).seq;
     }
+
+    store.completeProbe(sessionId, allEvents);
   } catch {
     // Pre-change session or no timeline data — that's fine
   }

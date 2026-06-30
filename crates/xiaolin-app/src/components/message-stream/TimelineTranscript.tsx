@@ -8,15 +8,24 @@
 // This component uses @tanstack/react-virtual to only render visible turn
 // blocks, keeping long transcripts and high-frequency text deltas responsive.
 
-import { useRef, useEffect, useCallback, memo, useMemo } from "react";
+import { useRef, useEffect, useCallback, memo, useMemo, forwardRef, useImperativeHandle } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTimelineStore } from "../../lib/stores/timeline-store";
-import { selectTurnGroups } from "../../lib/timeline/selectors";
+import { selectTranscriptRenderModel } from "../../lib/timeline/selectors";
 import type { TurnGroup } from "../../lib/timeline/selectors";
-import type { TurnDisplayNode } from "../../lib/timeline/types";
 import { TurnBlock } from "./TurnBlock";
 
-const EMPTY_NODES: TurnDisplayNode[] = [];
+const EMPTY_GROUPS: TurnGroup[] = [];
+
+export interface TimelineScrollHandle {
+  scrollToEnd(opts?: { behavior?: "auto" | "smooth" }): void;
+  scrollToTurn(turnId: string, opts?: {
+    align?: "start" | "center";
+    behavior?: "auto" | "smooth";
+  }): void;
+  isAtEnd(): boolean;
+  subscribeAtBottom(listener: (atBottom: boolean) => void): () => void;
+}
 
 export interface TimelineTranscriptProps {
   /** Session ID to render the transcript for. */
@@ -43,26 +52,29 @@ export interface TimelineTranscriptProps {
  * Only visible turn blocks are rendered, keeping scroll performance smooth
  * even with hundreds of tool steps and long text content.
  */
-export const TimelineTranscript = memo(function TimelineTranscript({
+export const TimelineTranscript = memo(forwardRef<TimelineScrollHandle, TimelineTranscriptProps>(function TimelineTranscript({
   sessionId,
   isLive,
   scrollContainerRef: externalScrollRef,
   showDiagnostics = false,
-}: TimelineTranscriptProps) {
+}: TimelineTranscriptProps, ref) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
+  const atBottomListenersRef = useRef(new Set<(atBottom: boolean) => void>());
   const usesExternalScroll = externalScrollRef != null;
   const scrollRef = externalScrollRef ?? internalScrollRef;
 
   // Subscribe only to a stable store reference. Zustand 5 + React 19 can loop
   // if the selector returns a freshly derived array on each snapshot read.
-  const nodes = useTimelineStore((s) => {
-    const state = s.states[sessionId];
-    if (!state) return EMPTY_NODES;
-    return state.nodes;
-  });
+  const record = useTimelineStore((s) => s.records[sessionId]);
   const turnGroups: TurnGroup[] = useMemo(
-    () => selectTurnGroups({ sessionId, nodes, events: [], maxSeq: 0, turnIndex: {}, eventTraces: {} }),
-    [nodes, sessionId],
+    () => record
+      ? selectTranscriptRenderModel({
+          canonicalState: record.canonical,
+          optimisticUsers: record.optimisticUsers,
+          toolOutputPatches: record.toolOutputPatches,
+        }).turnGroups
+      : EMPTY_GROUPS,
+    [record],
   );
 
   const activityKey = useMemo(() => {
@@ -90,6 +102,51 @@ export const TimelineTranscript = memo(function TimelineTranscript({
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
 
+  const isAtEnd = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  }, [scrollRef]);
+
+  useImperativeHandle(ref, () => ({
+    scrollToEnd: (opts) => {
+      virtualizerRef.current.scrollToIndex(Math.max(0, turnGroups.length - 1), {
+        align: "end",
+        behavior: opts?.behavior ?? "auto",
+      });
+    },
+    scrollToTurn: (turnId, opts) => {
+      const index = turnGroups.findIndex((group) => group.turnId === turnId);
+      if (index < 0) return;
+      virtualizerRef.current.scrollToIndex(index, {
+        align: opts?.align ?? "start",
+        behavior: opts?.behavior ?? "auto",
+      });
+    },
+    isAtEnd,
+    subscribeAtBottom: (listener) => {
+      atBottomListenersRef.current.add(listener);
+      listener(isAtEnd());
+      return () => {
+        atBottomListenersRef.current.delete(listener);
+      };
+    },
+  }), [isAtEnd, turnGroups]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const notify = () => {
+      const atBottom = isAtEnd();
+      for (const listener of atBottomListenersRef.current) {
+        listener(atBottom);
+      }
+    };
+    el.addEventListener("scroll", notify, { passive: true });
+    notify();
+    return () => el.removeEventListener("scroll", notify);
+  }, [isAtEnd, scrollRef]);
+
   useEffect(() => {
     requestAnimationFrame(() => {
       virtualizerRef.current.measure();
@@ -101,15 +158,18 @@ export const TimelineTranscript = memo(function TimelineTranscript({
   useEffect(() => {
     if (isLive && activityKey !== prevActivityKeyRef.current) {
       // Only auto-scroll if user is already near the bottom
-      if (virtualizerRef.current.isAtEnd()) {
+      if (isAtEnd()) {
         // Use rAF to let React finish rendering
         requestAnimationFrame(() => {
-          virtualizerRef.current.scrollToEnd({ behavior: "smooth" });
+          virtualizerRef.current.scrollToIndex(Math.max(0, turnGroups.length - 1), {
+            align: "end",
+            behavior: "smooth",
+          });
         });
       }
     }
     prevActivityKeyRef.current = activityKey;
-  }, [activityKey, isLive]);
+  }, [activityKey, isAtEnd, isLive, turnGroups.length]);
 
   const measureElement = useCallback(
     (node: HTMLElement | null) => {
@@ -207,4 +267,4 @@ export const TimelineTranscript = memo(function TimelineTranscript({
       {content}
     </div>
   );
-});
+}));

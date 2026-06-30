@@ -727,6 +727,7 @@ export interface ChatStreamParams {
   executionMode?: string;
   requestedExecutionMode?: string;
   modeSource?: string;
+  clientMessageId?: string;
 }
 
 const CHAT_EVENT_TYPES = [
@@ -764,6 +765,7 @@ const CHAT_EVENT_TYPES = [
   "goal_updated",
   "goal_cleared",
   "timeline_event",
+  "tool_output_patch",
 ] as const;
 
 export function chatStream(
@@ -800,6 +802,7 @@ export function chatStream(
       ...(params.responseLanguage ? { responseLanguage: params.responseLanguage } : {}),
       ...(params.goalMode ? { goalMode: true } : {}),
       ...(params.executionMode ? { executionMode: params.executionMode } : {}),
+      ...(params.clientMessageId ? { client_message_id: params.clientMessageId } : {}),
     })
     .then(() => {})
     .catch(() => {

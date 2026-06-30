@@ -513,6 +513,113 @@ describe("Tool lifecycle", () => {
     }
   });
 
+  it("deduplicates repeated start/progress/finish for the same call_id into one node", () => {
+    const events = [
+      makeToolStarted({
+        id: "tool-start-1",
+        seq: 1,
+        turn_id: "t1",
+        payload: { call_id: "same-call", tool_name: "read_file", display_title: "Read timeline.rs" },
+      }),
+      makeToolProgress({
+        id: "tool-progress-1",
+        seq: 2,
+        turn_id: "t1",
+        payload: { call_id: "same-call", message: "Reading timeline.rs", progress: 0.5 },
+      }),
+      makeToolStarted({
+        id: "tool-start-replay",
+        seq: 3,
+        turn_id: "t1",
+        payload: { call_id: "same-call", tool_name: "read_file", display_title: "Read timeline.rs" },
+      }),
+      makeToolFinished({
+        id: "tool-finish-1",
+        seq: 4,
+        turn_id: "t1",
+        payload: { call_id: "same-call", tool_name: "read_file", success: true, duration_ms: 42 },
+      }),
+      makeToolProgress({
+        id: "tool-progress-late",
+        seq: 5,
+        turn_id: "t1",
+        payload: { call_id: "same-call", message: "late output", progress: 0.9 },
+      }),
+    ];
+
+    const state = reduceTimelineEvents(events);
+    const tools = findNodesByKind(state.nodes, "tool_step");
+    expect(tools).toHaveLength(1);
+    if (tools[0].kind === "tool_step") {
+      expect(tools[0].call_id).toBe("same-call");
+      expect(tools[0].status).toBe("completed");
+      expect(tools[0].progress).toBe(0.9);
+      expect(tools[0].source_trace?.event_ids).toEqual([
+        "tool-start-1",
+        "tool-progress-1",
+        "tool-start-replay",
+        "tool-finish-1",
+        "tool-progress-late",
+      ]);
+    }
+  });
+
+  it("upgrades a progress-created stub when the start event arrives later", () => {
+    const state = reduceTimelineEvents([
+      makeToolProgress({
+        id: "progress-first",
+        seq: 1,
+        turn_id: "t1",
+        payload: { call_id: "late-start", message: "Reading", progress: 0.2 },
+      }),
+      makeToolStarted({
+        id: "start-later",
+        seq: 2,
+        turn_id: "t1",
+        payload: { call_id: "late-start", tool_name: "read_file", display_title: "Read timeline.rs" },
+      }),
+    ]);
+
+    const tools = findNodesByKind(state.nodes, "tool_step");
+    expect(tools).toHaveLength(1);
+    if (tools[0].kind === "tool_step") {
+      expect(tools[0].tool_name).toBe("read_file");
+      expect(tools[0].display_title).toBe("Read timeline.rs");
+      expect(tools[0].status).toBe("running");
+    }
+  });
+
+  it("does not create blank assistant or reasoning nodes from whitespace-only content", () => {
+    const state = reduceTimelineEvents([
+      makeTextDelta({
+        id: "blank-text-delta",
+        seq: 1,
+        turn_id: "t1",
+        payload: { node_id: "blank-text", delta: "\n  " },
+      }),
+      makeTextSnapshot({
+        id: "blank-text-snapshot",
+        seq: 2,
+        turn_id: "t1",
+        payload: { node_id: "blank-text-snapshot", content: "\n" },
+      }),
+      makeReasoningDelta({
+        id: "blank-reasoning-delta",
+        seq: 3,
+        turn_id: "t1",
+        payload: { node_id: "blank-reasoning", delta: "\n", visibility: "public" },
+      }),
+      makeReasoningSnapshot({
+        id: "blank-reasoning-snapshot",
+        seq: 4,
+        turn_id: "t1",
+        payload: { node_id: "blank-reasoning-snapshot", content: "   ", visibility: "public" },
+      }),
+    ]);
+
+    expect(state.nodes).toHaveLength(0);
+  });
+
   it("failed tool has status failed", () => {
     const failEvent = makeToolFinished({
       turn_id: "t1",

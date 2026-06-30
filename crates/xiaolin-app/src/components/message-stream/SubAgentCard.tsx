@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Robot, CaretRight, Check, X as XIcon, MagnifyingGlass, Terminal,
-  Globe, Wrench, Square, PaperPlaneRight, Lightning,
+  Globe, Wrench, Square, PaperPlaneRight,
 } from "@phosphor-icons/react";
 import type { SubAgentRunUI, SubAgentToolCall } from "../../lib/stores/types";
 import { StepIndicator, extractKeyInfo, type ToolCall } from "./StepIndicator";
@@ -172,17 +172,21 @@ export function SubAgentCard({ run, onCancel }: SubAgentCardProps) {
             style={{ color: "var(--fill-quaternary)" }}
             title={run.task}
           >
-            {run.task.length > 60 ? run.task.slice(0, 60) + "…" : run.task}
+            {run.task.length > 42 ? run.task.slice(0, 42) + "…" : run.task}
           </span>
         </span>
 
-        {/* Tool count (always shown) */}
-        <span className="flex shrink-0 items-center gap-0.5 text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
-          <Lightning size={9} />
-          {isActive && toolCount === 0 ? t("subAgent_thinking") : t("subAgent_toolsCount", { count: toolCount })}
-        </span>
-
         {/* Duration (live while active) */}
+        {isActive && (
+          <span className="shrink-0 text-[10px]" style={{ color: "var(--fill-quaternary)" }}>
+            {toolCount > 0 ? `已调用 ${toolCount} 个工具` : "进行中"}
+          </span>
+        )}
+        {!isActive && (
+          <span className="shrink-0 text-[10px]" style={{ color: isFailed ? "var(--red)" : "var(--fill-quaternary)" }}>
+            {isFailed ? "失败" : "已完成"}
+          </span>
+        )}
         <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--fill-quaternary)" }}>
           {formatElapsed(isActive ? elapsed : run.elapsedMs)}
         </span>

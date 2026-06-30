@@ -11,7 +11,7 @@
 //! | `TurnStart` | `TurnStarted` | Timeline event |
 //! | | `UserMessageCreated` | Emitted separately (not from AgentEvent) |
 //! | `ContentDelta` | `AssistantTextDelta` | Timeline event (coalesced) |
-//! | `ReasoningDelta` | `ReasoningDelta` | Timeline event (coalesced) |
+//! | `ReasoningDelta` | — | Private provider reasoning; never persisted |
 //! | `ToolExecuting` | `ToolCallStarted` | Timeline event |
 //! | `ToolProgress` | `ToolCallProgress` | Timeline event |
 //! | `ToolResult` | `ToolCallFinished` | Timeline event |
@@ -38,10 +38,11 @@
 
 use xiaolin_protocol::{
     AgentEvent, ApprovalRequestedPayload, ApprovalResolvedPayload,
-    AssistantMessageFinalizedPayload, CompactBoundaryPayload, IterationBoundaryPayload,
-    OutputPreview, SystemNoticePayload, TimelineEventId, TimelineEventType,
-    ToolCallFinishedPayload, ToolCallProgressPayload, ToolCallStartedPayload, TurnFinishedPayload,
-    TurnStartedPayload, TurnTimelineEvent, UserMessageCreatedPayload,
+    AssistantMessageFinalizedPayload, AssistantTextDeltaPayload, CompactBoundaryPayload,
+    IterationBoundaryPayload, OutputPreview, SystemNoticePayload, TimelineEventId,
+    TimelineEventType, ToolCallFinishedPayload, ToolCallProgressPayload, ToolCallStartedPayload,
+    ToolTargetMetadata, TurnFinishedPayload, TurnStartedPayload, TurnTimelineEvent,
+    UserMessageCreatedPayload,
 };
 use xiaolin_session::TimelineStore;
 
@@ -69,7 +70,8 @@ pub(crate) fn map_agent_event_to_timeline(event: &AgentEvent) -> Option<Vec<Emis
             .unwrap_or_default(),
         }]),
 
-        // Content/Reasoning deltas are coalesced by the chat handler
+        // Content deltas are emitted by the chat handler. Provider reasoning is
+        // private and must never be converted into canonical timeline events.
         AgentEvent::ContentDelta { .. } | AgentEvent::ReasoningDelta { .. } => None,
 
         AgentEvent::ToolExecuting {
@@ -100,7 +102,7 @@ pub(crate) fn map_agent_event_to_timeline(event: &AgentEvent) -> Option<Vec<Emis
             call_id,
             message,
             progress,
-            partial_output,
+            partial_output: _,
             ..
         } => Some(vec![EmissionCandidate {
             event_id: TimelineEventId::generate(),
@@ -109,7 +111,7 @@ pub(crate) fn map_agent_event_to_timeline(event: &AgentEvent) -> Option<Vec<Emis
                 call_id: call_id.clone(),
                 message: message.clone(),
                 progress: *progress,
-                partial_output: partial_output.clone(),
+                partial_output: None,
             })
             .unwrap_or_default(),
         }]),
@@ -266,6 +268,9 @@ pub(crate) fn map_agent_event_to_timeline(event: &AgentEvent) -> Option<Vec<Emis
                         iterations: Some(summary.iterations),
                         tool_calls: Some(summary.tool_calls_made as u32),
                         elapsed_ms: Some(summary.elapsed_ms),
+                        repeated_force_stops: None,
+                        repeated_warns: None,
+                        no_progress_count: None,
                     })
                     .unwrap_or_default(),
                 },
@@ -307,6 +312,9 @@ pub(crate) fn map_agent_event_to_timeline(event: &AgentEvent) -> Option<Vec<Emis
                     iterations: None,
                     tool_calls: None,
                     elapsed_ms: None,
+                    repeated_force_stops: None,
+                    repeated_warns: None,
+                    no_progress_count: None,
                 })
                 .unwrap_or_default(),
             }])
@@ -407,9 +415,11 @@ pub(crate) fn map_agent_event_to_timeline(event: &AgentEvent) -> Option<Vec<Emis
 pub(crate) fn emit_user_message_timeline(
     content: &str,
     message_id: Option<&str>,
+    client_message_id: Option<&str>,
 ) -> EmissionCandidate {
     let payload = UserMessageCreatedPayload {
         message_id: message_id.map(String::from),
+        client_message_id: client_message_id.map(String::from),
         content: content.to_string(),
         attachments: None,
     };
@@ -429,20 +439,7 @@ pub(crate) fn build_text_delta(node_id: &str, delta: &str, offset: u64) -> Emiss
             node_id: node_id.to_string(),
             delta: delta.to_string(),
             offset,
-        })
-        .unwrap_or_default(),
-    }
-}
-
-/// Build a coalesced reasoning delta event.
-pub(crate) fn build_reasoning_delta(node_id: &str, delta: &str, offset: u64) -> EmissionCandidate {
-    EmissionCandidate {
-        event_id: TimelineEventId::generate(),
-        event_type: TimelineEventType::ReasoningDelta,
-        payload_json: serde_json::to_value(&ReasoningDeltaPayload {
-            node_id: node_id.to_string(),
-            delta: delta.to_string(),
-            offset,
+            text_role: None,
         })
         .unwrap_or_default(),
     }
@@ -473,9 +470,6 @@ pub(crate) async fn append_timeline_event(
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-/// Import payload types for coalesced event helpers.
-use xiaolin_protocol::{AssistantTextDeltaPayload, ReasoningDeltaPayload, ToolTargetMetadata};
 
 fn classify_tool_category(tool_name: &str) -> String {
     let cat = match tool_name {
@@ -767,8 +761,12 @@ mod tests {
         };
 
         let candidates = map_agent_event_to_timeline(&event).expect("timeline candidates");
+        let finished = candidates
+            .iter()
+            .find(|candidate| candidate.event_type == TimelineEventType::ToolCallFinished)
+            .expect("tool_call_finished candidate");
         let payload: ToolCallFinishedPayload =
-            serde_json::from_value(candidates[0].payload_json.clone()).expect("payload");
+            serde_json::from_value(finished.payload_json.clone()).expect("payload");
 
         assert!(!payload.success);
         assert!(payload.output_preview.is_none());
@@ -886,24 +884,24 @@ mod tests {
         assert!(timeline_types.contains(&"ToolCallStarted".to_string()));
         assert!(timeline_types.contains(&"ToolCallFinished".to_string()));
         // TurnEnd produces AssistantMessageFinalized + TurnFinished
-        let turn_finished_count = timeline_types.iter().filter(|t| *t == "TurnFinished").count();
+        let turn_finished_count = timeline_types
+            .iter()
+            .filter(|t| *t == "TurnFinished")
+            .count();
         assert_eq!(turn_finished_count, 1);
 
-        // Verify ContentDelta and ReasoningDelta are NOT in map output
-        // (they are handled immediately via build_text_delta / build_reasoning_delta in chat.rs)
+        // ContentDelta is emitted immediately by chat.rs; tool lifecycle events
+        // are represented by the single tool node keyed by call_id.
         assert!(!timeline_types.contains(&"AssistantTextDelta".to_string()));
+        // Provider reasoning remains private and is never mapped.
         assert!(!timeline_types.contains(&"ReasoningDelta".to_string()));
     }
 
-    /// Verify that build_text_delta and build_reasoning_delta produce
-    /// correctly-typed EmissionCandidates with the expected event types.
+    /// Verify that build_text_delta produces a correctly typed candidate.
     #[test]
-    fn immediate_delta_builders_produce_correct_types() {
+    fn immediate_text_delta_builder_produces_correct_type() {
         let text = build_text_delta("text-1", "Hello", 0);
         assert_eq!(text.event_type, TimelineEventType::AssistantTextDelta);
-
-        let reasoning = build_reasoning_delta("r-1", "Thinking...", 0);
-        assert_eq!(reasoning.event_type, TimelineEventType::ReasoningDelta);
     }
 
     /// Verify that ContentDelta does NOT trigger a timeline event via
@@ -916,7 +914,10 @@ mod tests {
             raw_bytes: None,
         };
         let candidates = map_agent_event_to_timeline(&event);
-        assert!(candidates.is_none(), "ContentDelta should NOT produce timeline events via map — it uses immediate emission");
+        assert!(
+            candidates.is_none(),
+            "ContentDelta should NOT produce timeline events via map — it uses immediate emission"
+        );
     }
 
     /// Verify that empty ReasoningDelta does NOT trigger a text flush.

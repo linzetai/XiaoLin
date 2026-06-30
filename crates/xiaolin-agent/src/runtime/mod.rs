@@ -330,6 +330,7 @@ fn build_arguments_summary(tool_name: &str, arguments: &str, max_len: usize) -> 
 }
 
 /// Build a human-readable relevance description from pre-computed args summary.
+#[cfg(test)]
 fn build_relevance(tool_name: &str, args_summary: &str) -> String {
     if args_summary.is_empty() {
         format!("{tool_name} output")

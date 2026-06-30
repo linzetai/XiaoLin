@@ -5,13 +5,12 @@
 //
 // This is the canonical transcript renderer for both live and replayed turns.
 
-import { memo, lazy, Suspense, useState } from "react";
+import { memo, lazy, Suspense, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   TurnDisplayNode,
   UserMessageNode,
   AssistantTextNode,
-  ReasoningNode,
   ToolStepNode,
   ToolGroupNode,
   ApprovalNode,
@@ -19,9 +18,9 @@ import type {
   TurnStatusNode,
   SystemNoticeNode,
 } from "../../lib/timeline/types";
+import { normalizeApprovalDecision } from "../../lib/timeline/presentation";
 
 import { UserInput } from "./UserInput";
-import { ReasoningBlock } from "./ReasoningBlock";
 import { ToolStepView } from "./ToolStepView";
 
 const MarkdownContent = lazy(() =>
@@ -60,7 +59,7 @@ const AssistantTextNodeView = memo(function AssistantTextNodeView({
   /** When true, render as in-progress streaming with cursor */
   isStreaming?: boolean;
 }) {
-  if (!node.content) return null;
+  if (!node.content.trim()) return null;
 
   const isActive = isStreaming && node.status === "pending";
 
@@ -85,6 +84,7 @@ const AssistantTextNodeView = memo(function AssistantTextNodeView({
       )}
       {isActive && (
         <span
+          data-streaming-cursor
           className="ml-0.5 inline-block h-[16px] w-[2px] translate-y-[3px] rounded-full"
           style={{
             background: "var(--tint)",
@@ -93,29 +93,6 @@ const AssistantTextNodeView = memo(function AssistantTextNodeView({
         />
       )}
     </div>
-  );
-});
-
-// ============================================================================
-// ReasoningNodeView
-// ============================================================================
-
-const ReasoningNodeView = memo(function ReasoningNodeView({
-  node,
-  isStreaming,
-}: {
-  node: ReasoningNode;
-  /** When true in live mode, the node may be actively receiving deltas */
-  isStreaming?: boolean;
-}) {
-  const isActive = isStreaming && node.status === "pending";
-
-  return (
-    <ReasoningBlock
-      content={node.content}
-      isStreaming={isActive}
-      autoCollapse={node.collapsed}
-    />
   );
 });
 
@@ -201,17 +178,49 @@ const ApprovalNodeView = memo(function ApprovalNodeView({
 }: {
   node: ApprovalNode;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const summary = useMemo(() => summarizeApproval(node), [node]);
   return (
-    <div className="my-1.5 flex items-center gap-1.5 text-[12px]" style={{ color: "var(--fill-tertiary)" }}>
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--amber)" }} />
-      <span>
-        {node.action}:{" "}
-        {node.decision
-          ? `Resolved — ${node.decision} (via ${node.decision_source ?? "unknown"})`
-          : "Awaiting decision…"}
-      </span>
-      {node.reason && (
-        <span className="ml-1 opacity-60">({node.reason})</span>
+    <div
+      className="my-1.5 min-w-0 rounded-md border px-2 py-1 text-[12px]"
+      style={{
+        borderColor: summary.status === "pending"
+          ? "color-mix(in srgb, var(--amber) 22%, transparent)"
+          : "var(--separator)",
+        background: summary.status === "pending"
+          ? "color-mix(in srgb, var(--amber) 5%, transparent)"
+          : "transparent",
+        color: "var(--fill-secondary)",
+      }}
+      data-approval-row
+    >
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 text-left"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+      >
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ background: summary.status === "pending" ? "var(--amber)" : "var(--green)" }}
+        />
+        <span className="min-w-0 flex-1 truncate font-medium">{summary.title}</span>
+        {summary.target && (
+          <span className="hidden min-w-0 max-w-[46%] truncate text-[11px] sm:inline" style={{ color: "var(--fill-quaternary)", fontFamily: "var(--font-mono)" }}>
+            {summary.target}
+          </span>
+        )}
+        <span className="shrink-0 text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
+          {formatElapsed(Math.max(0, node.updated_at_ms - node.created_at_ms))}
+        </span>
+      </button>
+      {expanded && (
+        <div className="mt-1 space-y-0.5 border-l pl-2 text-[11px]" style={{ borderColor: "var(--separator)", color: "var(--fill-tertiary)" }}>
+          <div>动作：{node.action}</div>
+          {node.reason && <div>原因：{node.reason}</div>}
+          {node.decision && <div>决策：{node.decision}</div>}
+          {node.decision_source && <div>来源：{node.decision_source}</div>}
+        </div>
       )}
     </div>
   );
@@ -254,6 +263,7 @@ const TurnStatusView = memo(function TurnStatusView({
   node: TurnStatusNode;
 }) {
   const { t } = useTranslation("chat");
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const isAbnormal =
     node.end_reason === "tool_loop" ||
@@ -272,10 +282,21 @@ const TurnStatusView = memo(function TurnStatusView({
     node.summary ??
     node.diagnosis?.user_message ??
     getDefaultTurnEndMessage(node.end_reason, t);
+  const cause = classifyTurnFailure(node);
+  const elapsed = node.elapsed_ms != null ? formatElapsed(node.elapsed_ms) : undefined;
+  const diagnosticCode = usefulDiagnosisCode(node.diagnosis?.diagnosis_code);
+  const diagnostic = JSON.stringify({
+    turn_id: node.turn_id,
+    end_reason: node.end_reason,
+    status: node.status,
+    elapsed_ms: node.elapsed_ms,
+    diagnosis: node.diagnosis,
+    summary: node.summary,
+  }, null, 2);
 
   return (
     <div
-      className="my-2 flex items-start gap-2 rounded-lg px-3 py-2 text-[12px]"
+      className="my-3 rounded-lg px-3 py-2 text-[12px]"
       style={{
         background:
           node.status === "failed"
@@ -287,22 +308,55 @@ const TurnStatusView = memo(function TurnStatusView({
             : "0.5px solid color-mix(in srgb, var(--amber) 20%, transparent)",
         color: "var(--fill-secondary)",
       }}
+      data-turn-error-card
     >
-      <span className="mt-[2px] inline-block h-[8px] w-[8px] shrink-0 rounded-full" style={{
-        background: node.status === "failed" ? "var(--red)" : "var(--amber)",
-      }} />
-      <div className="flex-1 min-w-0">
-        <span className="font-medium">{message}</span>
-        {node.diagnosis?.diagnosis_code && (
-          <span className="ml-1 opacity-50">
-            [{node.diagnosis.diagnosis_code}]
-          </span>
-        )}
-        {node.elapsed_ms != null && (
-          <span className="ml-2 opacity-40 tabular-nums">
-            {formatElapsed(node.elapsed_ms)}
-          </span>
-        )}
+      <div className="flex items-start gap-2">
+        <span className="mt-[5px] inline-block h-[8px] w-[8px] shrink-0 rounded-full" style={{
+          background: node.status === "failed" ? "var(--red)" : "var(--amber)",
+        }} />
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold" style={{ color: node.status === "failed" ? "var(--red)" : "var(--fill-secondary)" }}>
+            本轮执行异常结束
+          </div>
+          <div className="mt-0.5 leading-relaxed" style={{ color: "var(--fill-tertiary)" }}>
+            {message === "An unexpected error terminated the turn."
+              ? "主流程在汇总或响应阶段中断；已完成的工具和子代理结果仍可展开查看。"
+              : message}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px]" style={{ color: "var(--fill-quaternary)" }}>
+            <span>原因：{cause}</span>
+            {elapsed && <span>耗时：{elapsed}</span>}
+            {node.diagnosis?.tool_calls != null && <span>工具：{node.diagnosis.tool_calls} 次</span>}
+            {diagnosticCode ? <span>Code：{diagnosticCode}</span> : <span>未获取到可用的诊断信息</span>}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <ErrorActionButton
+              label="重试汇总"
+              primary
+              onClick={() => window.dispatchEvent(new CustomEvent("xiaolin:retry-summary", { detail: { turnId: node.turn_id } }))}
+            />
+            <ErrorActionButton label="查看详情" onClick={() => setDetailsOpen((value) => !value)} />
+            <ErrorActionButton
+              label="复制诊断信息"
+              onClick={() => {
+                void navigator.clipboard?.writeText(diagnostic);
+              }}
+            />
+          </div>
+          {detailsOpen && (
+            <pre
+              className="mt-2 max-h-[180px] overflow-auto whitespace-pre-wrap rounded-md p-2 text-[11px]"
+              style={{
+                background: "var(--bg-primary)",
+                border: "0.5px solid var(--separator)",
+                color: "var(--fill-tertiary)",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              {diagnostic}
+            </pre>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -324,6 +378,23 @@ function getDefaultTurnEndMessage(
     default:
       return t("turnEnded_abnormal", "Turn ended abnormally");
   }
+}
+
+function ErrorActionButton({ label, onClick, primary }: { label: string; onClick?: () => void; primary?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded px-2 py-0.5 text-[11px] transition-colors hover:bg-[var(--bg-hover)]"
+      style={{
+        border: "0.5px solid var(--separator)",
+        color: primary ? "var(--bg-primary)" : "var(--fill-secondary)",
+        background: primary ? "var(--fill-secondary)" : "transparent",
+      }}
+    >
+      {label}
+    </button>
+  );
 }
 
 // ============================================================================
@@ -378,6 +449,8 @@ export interface TurnNodeRendererProps {
   sessionId?: string;
   /** When true, diagnostic-only timeline metadata can be visible. */
   showDiagnostics?: boolean;
+  /** The only text/reasoning node allowed to render a live cursor. */
+  activeStreamingNodeId?: string | null;
 }
 
 /**
@@ -391,8 +464,10 @@ export const TurnNodeRenderer = memo(function TurnNodeRenderer({
   isLive,
   sessionId,
   showDiagnostics,
+  activeStreamingNodeId,
 }: TurnNodeRendererProps) {
   if (nodes.length === 0) return null;
+  const cursorNodeId = activeStreamingNodeId ?? selectActiveStreamingNodeId(nodes);
 
   return (
     <>
@@ -403,6 +478,7 @@ export const TurnNodeRenderer = memo(function TurnNodeRenderer({
           isLive={isLive}
           sessionId={sessionId}
           showDiagnostics={showDiagnostics}
+          activeStreamingNodeId={cursorNodeId}
         />
       ))}
     </>
@@ -414,13 +490,15 @@ function TurnNodeView({
   isLive,
   sessionId,
   showDiagnostics,
+  activeStreamingNodeId,
 }: {
   node: TurnDisplayNode;
   isLive?: boolean;
   sessionId?: string;
   showDiagnostics?: boolean;
+  activeStreamingNodeId?: string | null;
 }) {
-  const isStreaming = isLive && node.status === "pending";
+  const isStreaming = isLive && node.status === "pending" && node.node_id === activeStreamingNodeId;
   if (
     node.kind === "turn_status" &&
     node.end_reason === "completed" &&
@@ -430,6 +508,12 @@ function TurnNodeView({
     return null;
   }
   if (node.kind === "iteration_boundary" && !showDiagnostics) {
+    return null;
+  }
+  if (
+    (node.kind === "assistant_text" || node.kind === "reasoning") &&
+    !node.content.trim()
+  ) {
     return null;
   }
 
@@ -453,9 +537,7 @@ function TurnNodeView({
           />
         );
       case "reasoning":
-        return (
-          <ReasoningNodeView node={node} isStreaming={isStreaming} />
-        );
+        return null;
       case "tool_step":
         return <ToolStepNodeView node={node} sessionId={sessionId} />;
       case "tool_group":
@@ -498,4 +580,79 @@ function formatElapsed(ms: number): string {
   const mins = Math.floor(secs / 60);
   const remSecs = Math.round(secs % 60);
   return `${mins}m ${remSecs}s`;
+}
+
+interface ApprovalSummary {
+  title: string;
+  target?: string;
+  status: "pending" | "completed";
+}
+
+function summarizeApproval(node: ApprovalNode): ApprovalSummary {
+  const decision = normalizeApprovalDecision(node.decision);
+  const target = extractApprovalTarget(node);
+  if (!node.decision || node.status === "pending") {
+    return {
+      title: node.action.includes("command") ? "等待授权执行命令" : "等待授权",
+      target,
+      status: "pending",
+    };
+  }
+  if (decision === "deny" || decision === "abort") {
+    return {
+      title: node.action.includes("command") ? "已拒绝执行命令" : "已拒绝授权",
+      target,
+      status: "completed",
+    };
+  }
+  return {
+    title: node.action.includes("command") ? "已批准执行命令" : "已获授权",
+    target,
+    status: "completed",
+  };
+}
+
+function extractApprovalTarget(node: ApprovalNode): string | undefined {
+  const text = [node.reason, node.action].filter(Boolean).join(" ");
+  const commandMatch = text.match(/ShellCommand\s*\{\s*command:\s*"([^"]+)"/);
+  if (commandMatch) return commandMatch[1];
+  const quoted = text.match(/`([^`]+)`/);
+  if (quoted) return quoted[1];
+  if (node.reason && node.reason.length < 120) return node.reason;
+  return undefined;
+}
+
+function classifyTurnFailure(node: TurnStatusNode): string {
+  const code = node.diagnosis?.diagnosis_code?.toLowerCase() ?? "";
+  const reason = node.end_reason.toLowerCase();
+  if (code.includes("network") || reason.includes("network")) return "网络连接中断";
+  if (code.includes("tool") || reason.includes("tool")) return "工具执行失败";
+  if (code.includes("permission") || code.includes("approval") || reason.includes("cancelled")) return "权限或审批被拒绝";
+  if (code.includes("model") || reason.includes("interrupted")) return "模型响应中断";
+  if (code.includes("internal") || reason.includes("replaced")) return "内部错误";
+  if (reason.includes("budget")) return "模型响应中断";
+  return "未获取到诊断信息";
+}
+
+function usefulDiagnosisCode(code?: string): string | undefined {
+  if (!code) return undefined;
+  const normalized = code.toLowerCase();
+  if (normalized === "error" || normalized === "unknown" || normalized === "unexpected_error") {
+    return undefined;
+  }
+  return code;
+}
+
+function selectActiveStreamingNodeId(nodes: TurnDisplayNode[]): string | null {
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index];
+    if (
+      (node.kind === "assistant_text" || node.kind === "reasoning") &&
+      node.status === "pending" &&
+      node.content.trim()
+    ) {
+      return node.node_id;
+    }
+  }
+  return null;
 }

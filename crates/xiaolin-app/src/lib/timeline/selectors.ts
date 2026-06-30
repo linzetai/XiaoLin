@@ -4,6 +4,8 @@
 
 import type {
   TimelineState,
+  ProvisionalUserMessage,
+  ToolOutputPatch,
   TurnDisplayNode,
   TurnDisplayNodeKind,
   UserMessageNode,
@@ -28,6 +30,50 @@ export interface TurnGroup {
   userMessageNode: UserMessageNode | null;
   /** All assistant-side nodes in timeline order. */
   assistantNodes: TurnDisplayNode[];
+}
+
+export interface TranscriptRenderModelInput {
+  canonicalState: TimelineState;
+  optimisticUsers: Record<string, ProvisionalUserMessage>;
+  toolOutputPatches: Record<string, ToolOutputPatch>;
+}
+
+export interface TranscriptRenderModel {
+  turnGroups: TurnGroup[];
+  toolOutputPatches: Record<string, ToolOutputPatch>;
+}
+
+export function selectTranscriptRenderModel({
+  canonicalState,
+  optimisticUsers,
+  toolOutputPatches,
+}: TranscriptRenderModelInput): TranscriptRenderModel {
+  const turnGroups = selectTurnGroups(canonicalState);
+  const optimisticGroups = Object.values(optimisticUsers)
+    .sort((a, b) => a.createdAtMs - b.createdAtMs)
+    .map((user, index): TurnGroup => {
+      const node: UserMessageNode = {
+        kind: "user_message",
+        node_id: `optimistic-user-${user.clientMessageId}`,
+        turn_id: user.localTurnId,
+        status: user.status === "failed" ? "failed" : "pending",
+        created_at_ms: user.createdAtMs,
+        updated_at_ms: user.createdAtMs,
+        content: user.content,
+        attachments: user.attachments,
+      };
+      return {
+        groupId: `${user.localTurnId}:optimistic:${index}`,
+        turnId: user.localTurnId,
+        userMessageNode: node,
+        assistantNodes: [],
+      };
+    });
+
+  return {
+    turnGroups: [...turnGroups, ...optimisticGroups],
+    toolOutputPatches,
+  };
 }
 
 /**

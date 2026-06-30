@@ -18,6 +18,7 @@ import type {
   SystemNoticeNode,
   SourceEventTrace,
   NodeStatus,
+  NodeIdentityInfo,
   UserMessageCreatedPayload,
   AssistantTextDeltaPayload,
   AssistantTextSnapshotPayload,
@@ -83,6 +84,41 @@ function parsePayload<T>(event: TurnTimelineEvent): T {
   return event.payload_json as unknown as T;
 }
 
+/**
+ * Check whether creating/updating a node with the given node_id conflicts
+ * with the existing identity record. Returns true if the event should be
+ * rejected (protocol violation).
+ */
+function checkNodeIdentityConflict(
+  nodeIdIndex: Record<string, NodeIdentityInfo>,
+  nodeId: string,
+  info: NodeIdentityInfo,
+): boolean {
+  const existing = nodeIdIndex[nodeId];
+  if (!existing) return false;
+  if (
+    existing.kind !== info.kind ||
+    existing.turnId !== info.turnId ||
+    existing.visibility !== info.visibility ||
+    existing.textRole !== info.textRole
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Record node identity in the index. Called on first creation of a node.
+ */
+function recordNodeIdentity(
+  nodeIdIndex: Record<string, NodeIdentityInfo>,
+  nodeId: string,
+  info: NodeIdentityInfo,
+): Record<string, NodeIdentityInfo> {
+  if (nodeIdIndex[nodeId]) return nodeIdIndex;
+  return { ...nodeIdIndex, [nodeId]: info };
+}
+
 // ============================================================================
 // Reducer entry point
 // ============================================================================
@@ -133,6 +169,7 @@ export function reduceTimelineEvent(
   let newNodes: TurnDisplayNode[];
   let newEventTraces = state.eventTraces;
   const newTurnIndex = { ...state.turnIndex };
+  let newNodeIdIndex = { ...state.nodeIdIndex };
 
   switch (event.event_type) {
     case "turn_started": {
@@ -146,6 +183,13 @@ export function reduceTimelineEvent(
       const nodeId = payload.message_id
         ? `node-um-${payload.message_id}`
         : nodeIdFromEvent("um", event);
+
+      const identity: NodeIdentityInfo = { kind: "user_message", turnId: event.turn_id };
+      if (checkNodeIdentityConflict(newNodeIdIndex, nodeId, identity)) {
+        console.warn("[timeline] Protocol violation: node identity conflict for", nodeId, identity, newNodeIdIndex[nodeId]);
+        return state;
+      }
+
       const node: UserMessageNode = {
         kind: "user_message",
         node_id: nodeId,
@@ -159,6 +203,7 @@ export function reduceTimelineEvent(
         source_trace: traceFromEvent(event),
       };
       newEventTraces = trackEvent(nodeId);
+      newNodeIdIndex = recordNodeIdentity(newNodeIdIndex, nodeId, identity);
       newNodes = [...state.nodes, node];
       newTurnIndex[event.turn_id] = [
         ...(newTurnIndex[event.turn_id] ?? []),
@@ -169,9 +214,15 @@ export function reduceTimelineEvent(
 
     case "assistant_text_delta": {
       const payload = parsePayload<AssistantTextDeltaPayload>(event);
+      const identity: NodeIdentityInfo = {
+        kind: "assistant_text",
+        turnId: event.turn_id,
+        textRole: payload.text_role ?? "final",
+      };
 
-      // Ignore empty deltas
-      if (!payload.delta) {
+      // Ignore empty/whitespace-only deltas so streaming cursors do not leave
+      // blank timeline nodes behind.
+      if (!payload.delta.trim()) {
         newNodes = state.nodes;
         break;
       }
@@ -183,17 +234,26 @@ export function reduceTimelineEvent(
       );
 
       if (existingIdx >= 0) {
+        if (checkNodeIdentityConflict(newNodeIdIndex, payload.node_id, identity)) {
+          console.warn("[timeline] Protocol violation: node identity conflict for", payload.node_id, identity, newNodeIdIndex[payload.node_id]);
+          return state;
+        }
         const existing = state.nodes[existingIdx] as AssistantTextNode;
         const updated: AssistantTextNode = {
           ...existing,
           content: existing.content + payload.delta,
           byte_length: (existing.byte_length ?? 0) + payload.delta.length,
           updated_at_ms: event.created_at_ms,
+          text_role: existing.text_role ?? payload.text_role ?? "final",
           source_trace: mergeTrace(existing.source_trace, event),
         };
         newNodes = [...state.nodes];
         newNodes[existingIdx] = updated;
       } else {
+        if (checkNodeIdentityConflict(newNodeIdIndex, payload.node_id, identity)) {
+          console.warn("[timeline] Protocol violation: node identity conflict for", payload.node_id, identity, newNodeIdIndex[payload.node_id]);
+          return state;
+        }
         const node: AssistantTextNode = {
           kind: "assistant_text",
           node_id: payload.node_id,
@@ -203,8 +263,10 @@ export function reduceTimelineEvent(
           updated_at_ms: event.created_at_ms,
           content: payload.delta,
           byte_length: payload.delta.length,
+          text_role: payload.text_role ?? "final",
           source_trace: traceFromEvent(event),
         };
+        newNodeIdIndex = recordNodeIdentity(newNodeIdIndex, payload.node_id, identity);
         newNodes = [...state.nodes, node];
         newTurnIndex[event.turn_id] = [
           ...(newTurnIndex[event.turn_id] ?? []),
@@ -217,12 +279,25 @@ export function reduceTimelineEvent(
 
     case "assistant_text_snapshot": {
       const payload = parsePayload<AssistantTextSnapshotPayload>(event);
+      if (!payload.content.trim()) {
+        newNodes = state.nodes;
+        break;
+      }
+      const identity: NodeIdentityInfo = {
+        kind: "assistant_text",
+        turnId: event.turn_id,
+        textRole: payload.text_role ?? "final",
+      };
       const existingIdx = state.nodes.findIndex(
         (n) =>
           n.kind === "assistant_text" && n.node_id === payload.node_id,
       );
 
       if (existingIdx >= 0) {
+        if (checkNodeIdentityConflict(newNodeIdIndex, payload.node_id, identity)) {
+          console.warn("[timeline] Protocol violation: node identity conflict for", payload.node_id, identity, newNodeIdIndex[payload.node_id]);
+          return state;
+        }
         const existing = state.nodes[existingIdx] as AssistantTextNode;
         const updated: AssistantTextNode = {
           ...existing,
@@ -230,11 +305,16 @@ export function reduceTimelineEvent(
           byte_length: payload.byte_length ?? payload.content.length,
           status: completeStatus(existing.status),
           updated_at_ms: event.created_at_ms,
+          text_role: existing.text_role ?? payload.text_role ?? "final",
           source_trace: mergeTrace(existing.source_trace, event),
         };
         newNodes = [...state.nodes];
         newNodes[existingIdx] = updated;
       } else {
+        if (checkNodeIdentityConflict(newNodeIdIndex, payload.node_id, identity)) {
+          console.warn("[timeline] Protocol violation: node identity conflict for", payload.node_id, identity, newNodeIdIndex[payload.node_id]);
+          return state;
+        }
         const node: AssistantTextNode = {
           kind: "assistant_text",
           node_id: payload.node_id,
@@ -244,8 +324,10 @@ export function reduceTimelineEvent(
           updated_at_ms: event.created_at_ms,
           content: payload.content,
           byte_length: payload.byte_length ?? payload.content.length,
+          text_role: payload.text_role ?? "final",
           source_trace: traceFromEvent(event),
         };
+        newNodeIdIndex = recordNodeIdentity(newNodeIdIndex, payload.node_id, identity);
         newNodes = [...state.nodes, node];
         newTurnIndex[event.turn_id] = [
           ...(newTurnIndex[event.turn_id] ?? []),
@@ -259,8 +341,18 @@ export function reduceTimelineEvent(
     case "reasoning_delta": {
       const payload = parsePayload<ReasoningDeltaPayload>(event);
 
-      // Ignore empty deltas
-      if (!payload.delta) {
+      // Private reasoning: do not persist, do not render
+      if (payload.visibility === "private") {
+        return state;
+      }
+
+      // Missing visibility in new schema: do not render (safety default)
+      if (payload.visibility === undefined || payload.visibility == null) {
+        return state;
+      }
+
+      // Ignore empty/whitespace-only deltas.
+      if (!payload.delta.trim()) {
         newNodes = state.nodes;
         break;
       }
@@ -268,18 +360,32 @@ export function reduceTimelineEvent(
       const existingIdx = state.nodes.findIndex(
         (n) => n.kind === "reasoning" && n.node_id === payload.node_id,
       );
+      const identity: NodeIdentityInfo = {
+        kind: "reasoning",
+        turnId: event.turn_id,
+        visibility: payload.visibility,
+      };
 
       if (existingIdx >= 0) {
+        if (checkNodeIdentityConflict(newNodeIdIndex, payload.node_id, identity)) {
+          console.warn("[timeline] Protocol violation: node identity conflict for", payload.node_id, identity, newNodeIdIndex[payload.node_id]);
+          return state;
+        }
         const existing = state.nodes[existingIdx] as ReasoningNode;
         const updated: ReasoningNode = {
           ...existing,
           content: existing.content + payload.delta,
+          visibility: payload.visibility ?? existing.visibility,
           updated_at_ms: event.created_at_ms,
           source_trace: mergeTrace(existing.source_trace, event),
         };
         newNodes = [...state.nodes];
         newNodes[existingIdx] = updated;
       } else {
+        if (checkNodeIdentityConflict(newNodeIdIndex, payload.node_id, identity)) {
+          console.warn("[timeline] Protocol violation: node identity conflict for", payload.node_id, identity, newNodeIdIndex[payload.node_id]);
+          return state;
+        }
         const node: ReasoningNode = {
           kind: "reasoning",
           node_id: payload.node_id,
@@ -289,8 +395,10 @@ export function reduceTimelineEvent(
           updated_at_ms: event.created_at_ms,
           content: payload.delta,
           collapsed: false,
+          visibility: payload.visibility,
           source_trace: traceFromEvent(event),
         };
+        newNodeIdIndex = recordNodeIdentity(newNodeIdIndex, payload.node_id, identity);
         newNodes = [...state.nodes, node];
         newTurnIndex[event.turn_id] = [
           ...(newTurnIndex[event.turn_id] ?? []),
@@ -303,23 +411,52 @@ export function reduceTimelineEvent(
 
     case "reasoning_snapshot": {
       const payload = parsePayload<ReasoningSnapshotPayload>(event);
+
+      // Private reasoning: do not persist, do not render
+      if (payload.visibility === "private") {
+        return state;
+      }
+
+      // Missing visibility: do not render (safety default)
+      if (payload.visibility === undefined || payload.visibility == null) {
+        return state;
+      }
+      if (!payload.content.trim()) {
+        newNodes = state.nodes;
+        break;
+      }
+
       const existingIdx = state.nodes.findIndex(
         (n) => n.kind === "reasoning" && n.node_id === payload.node_id,
       );
+      const identity: NodeIdentityInfo = {
+        kind: "reasoning",
+        turnId: event.turn_id,
+        visibility: payload.visibility,
+      };
 
       if (existingIdx >= 0) {
+        if (checkNodeIdentityConflict(newNodeIdIndex, payload.node_id, identity)) {
+          console.warn("[timeline] Protocol violation: node identity conflict for", payload.node_id, identity, newNodeIdIndex[payload.node_id]);
+          return state;
+        }
         const existing = state.nodes[existingIdx] as ReasoningNode;
         const updated: ReasoningNode = {
           ...existing,
           content: payload.content,
           status: completeStatus(existing.status),
           collapsed: true, // collapse after completion
+          visibility: payload.visibility ?? existing.visibility,
           updated_at_ms: event.created_at_ms,
           source_trace: mergeTrace(existing.source_trace, event),
         };
         newNodes = [...state.nodes];
         newNodes[existingIdx] = updated;
       } else {
+        if (checkNodeIdentityConflict(newNodeIdIndex, payload.node_id, identity)) {
+          console.warn("[timeline] Protocol violation: node identity conflict for", payload.node_id, identity, newNodeIdIndex[payload.node_id]);
+          return state;
+        }
         const node: ReasoningNode = {
           kind: "reasoning",
           node_id: payload.node_id,
@@ -329,8 +466,10 @@ export function reduceTimelineEvent(
           updated_at_ms: event.created_at_ms,
           content: payload.content,
           collapsed: true,
+          visibility: payload.visibility,
           source_trace: traceFromEvent(event),
         };
+        newNodeIdIndex = recordNodeIdentity(newNodeIdIndex, payload.node_id, identity);
         newNodes = [...state.nodes, node];
         newTurnIndex[event.turn_id] = [
           ...(newTurnIndex[event.turn_id] ?? []),
@@ -344,35 +483,58 @@ export function reduceTimelineEvent(
     case "tool_call_started": {
       const payload = parsePayload<ToolCallStartedPayload>(event);
       const nodeId = `node-ts-${payload.call_id}`;
-      const node: ToolStepNode = {
-        kind: "tool_step",
-        node_id: nodeId,
-        turn_id: event.turn_id,
-        status: "running",
-        created_at_ms: event.created_at_ms,
-        updated_at_ms: event.created_at_ms,
-        tool_name: payload.tool_name,
-        tool_category: payload.tool_category as ToolStepNode["tool_category"],
-        display_title: payload.display_title ?? payload.tool_name,
-        call_id: payload.call_id,
-        target: payload.target,
-        progress_label: undefined,
-        progress: undefined,
-        started_at_ms: event.created_at_ms,
-        finished_at_ms: undefined,
-        duration_ms: undefined,
-        output_preview: undefined,
-        output_detail: undefined,
-        error_message: undefined,
-        args: payload.args,
-        source_trace: traceFromEvent(event),
-      };
+      const existingIdx = state.nodes.findIndex(
+        (n) => n.kind === "tool_step" && n.call_id === payload.call_id,
+      );
       newEventTraces = trackEvent(nodeId);
-      newNodes = [...state.nodes, node];
-      newTurnIndex[event.turn_id] = [
-        ...(newTurnIndex[event.turn_id] ?? []),
-        nodeId,
-      ];
+      if (existingIdx >= 0) {
+        const existing = state.nodes[existingIdx] as ToolStepNode;
+        const updated: ToolStepNode = {
+          ...existing,
+          status: existing.status === "completed" || existing.status === "failed"
+            ? existing.status
+            : "running",
+          tool_name: payload.tool_name || existing.tool_name,
+          tool_category: (payload.tool_category as ToolStepNode["tool_category"]) ?? existing.tool_category,
+          display_title: payload.display_title ?? existing.display_title,
+          target: payload.target ?? existing.target,
+          args: payload.args ?? existing.args,
+          started_at_ms: existing.started_at_ms ?? event.created_at_ms,
+          updated_at_ms: event.created_at_ms,
+          source_trace: mergeTrace(existing.source_trace, event),
+        };
+        newNodes = [...state.nodes];
+        newNodes[existingIdx] = updated;
+      } else {
+        const node: ToolStepNode = {
+          kind: "tool_step",
+          node_id: nodeId,
+          turn_id: event.turn_id,
+          status: "running",
+          created_at_ms: event.created_at_ms,
+          updated_at_ms: event.created_at_ms,
+          tool_name: payload.tool_name,
+          tool_category: payload.tool_category as ToolStepNode["tool_category"],
+          display_title: payload.display_title ?? payload.tool_name,
+          call_id: payload.call_id,
+          target: payload.target,
+          progress_label: undefined,
+          progress: undefined,
+          started_at_ms: event.created_at_ms,
+          finished_at_ms: undefined,
+          duration_ms: undefined,
+          output_preview: undefined,
+          output_detail: undefined,
+          error_message: undefined,
+          args: payload.args,
+          source_trace: traceFromEvent(event),
+        };
+        newNodes = [...state.nodes, node];
+        newTurnIndex[event.turn_id] = [
+          ...(newTurnIndex[event.turn_id] ?? []),
+          nodeId,
+        ];
+      }
       break;
     }
 
@@ -385,9 +547,13 @@ export function reduceTimelineEvent(
 
       if (existingIdx >= 0) {
         const existing = state.nodes[existingIdx] as ToolStepNode;
+        const isTerminal =
+          existing.status === "completed" ||
+          existing.status === "failed" ||
+          existing.status === "cancelled";
         const updated: ToolStepNode = {
           ...existing,
-          status: "running",
+          status: isTerminal ? existing.status : "running",
           progress_label: payload.message || existing.progress_label,
           progress: payload.progress ?? existing.progress,
           updated_at_ms: event.created_at_ms,
@@ -431,9 +597,14 @@ export function reduceTimelineEvent(
 
       if (existingIdx >= 0) {
         const existing = state.nodes[existingIdx] as ToolStepNode;
+        // Late tool_call_finished after turn_finished: override cancelled with real result
+        const newStatus =
+          existing.status === "cancelled"
+            ? successStatus(payload.success)
+            : successStatus(payload.success);
         const updated: ToolStepNode = {
           ...existing,
-          status: successStatus(payload.success),
+          status: newStatus,
           tool_name: payload.tool_name || existing.tool_name,
           finished_at_ms: event.created_at_ms,
           duration_ms: payload.duration_ms ?? existing.duration_ms,
@@ -597,14 +768,23 @@ export function reduceTimelineEvent(
       const payload = parsePayload<TurnFinishedPayload>(event);
       const nodeId = `node-tstatus-${event.turn_id}`;
 
-      // Mark any pending/running nodes in this turn as completed/failed
+      // Cancel all pending/running nodes in this turn
       const updatedNodes = state.nodes.map((n) => {
         if (n.turn_id !== event.turn_id) return n;
-        if (n.kind === "assistant_text" && n.status !== "completed") {
+        // Mark pending/running text and reasoning as completed
+        if (n.kind === "assistant_text" && n.status !== "completed" && n.status !== "failed") {
           return { ...n, status: "completed" as NodeStatus, updated_at_ms: event.created_at_ms };
         }
-        if (n.kind === "reasoning" && n.status !== "completed") {
+        if (n.kind === "reasoning" && n.status !== "completed" && n.status !== "failed") {
           return { ...n, status: "completed" as NodeStatus, collapsed: true, updated_at_ms: event.created_at_ms };
+        }
+        // Cancel running/pending tools
+        if ((n.kind === "tool_step") && (n.status === "running" || n.status === "pending")) {
+          return { ...n, status: "cancelled" as NodeStatus, updated_at_ms: event.created_at_ms };
+        }
+        // Resolve pending approvals as cancelled
+        if (n.kind === "approval" && n.status === "pending") {
+          return { ...n, status: "cancelled" as NodeStatus, updated_at_ms: event.created_at_ms };
         }
         return n;
       });
@@ -618,13 +798,16 @@ export function reduceTimelineEvent(
         updated_at_ms: event.created_at_ms,
         end_reason: payload.end_reason,
         summary: payload.user_message,
-        diagnosis: payload.diagnosis_code
+        diagnosis: (payload.diagnosis_code || payload.repeated_force_stops != null || payload.repeated_warns != null || payload.no_progress_count != null)
           ? {
               diagnosis_code: payload.diagnosis_code,
               severity: payload.severity,
               user_message: payload.user_message,
               iterations: payload.iterations,
               tool_calls: payload.tool_calls,
+              repeated_force_stops: payload.repeated_force_stops,
+              repeated_warns: payload.repeated_warns,
+              no_progress_count: payload.no_progress_count,
             }
           : undefined,
         elapsed_ms: payload.elapsed_ms,
@@ -691,6 +874,7 @@ export function reduceTimelineEvent(
     sessionId: state.sessionId || event.session_id,
     turnIndex: newTurnIndex,
     eventTraces: newEventTraces,
+    nodeIdIndex: newNodeIdIndex,
   };
 }
 

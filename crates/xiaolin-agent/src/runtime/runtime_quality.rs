@@ -126,13 +126,6 @@ impl RuntimeQualityCollector {
             .saturating_add(projected_tokens as u64);
     }
 
-    /// Record a recall tool invocation.
-    pub fn record_recall_call(&mut self) {
-        // Deprecated: recall count is now tracked via the module-level
-        // atomic counter (increment_recall_counter / take_recall_count).
-        // This method remains as a no-op for API compatibility.
-    }
-
     #[allow(dead_code)]
     pub fn build_summary(
         &self,

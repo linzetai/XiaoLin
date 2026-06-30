@@ -121,7 +121,7 @@ export function makeTextSnapshot(
 
 export function makeReasoningDelta(
   overrides: Partial<TurnTimelineEvent> & {
-    payload?: { node_id?: string; delta?: string; offset?: number };
+    payload?: { node_id?: string; delta?: string; offset?: number; visibility?: string };
   } = {},
 ): TurnTimelineEvent {
   const { payload, ...rest } = overrides;
@@ -130,6 +130,7 @@ export function makeReasoningDelta(
       node_id: "node-r-1",
       delta: "Let me think...",
       offset: 0,
+      visibility: "public",
       ...payload,
     },
     ...rest,
@@ -138,7 +139,7 @@ export function makeReasoningDelta(
 
 export function makeReasoningSnapshot(
   overrides: Partial<TurnTimelineEvent> & {
-    payload?: { node_id?: string; content?: string };
+    payload?: { node_id?: string; content?: string; visibility?: string };
   } = {},
 ): TurnTimelineEvent {
   const { payload, ...rest } = overrides;
@@ -146,6 +147,7 @@ export function makeReasoningSnapshot(
     payload: {
       node_id: "node-r-1",
       content: "I need to read the file first.",
+      visibility: "public",
       ...payload,
     },
     ...rest,

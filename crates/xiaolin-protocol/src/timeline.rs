@@ -75,7 +75,44 @@ impl From<&str> for TimelineEventId {
 /// Increment when the event payload shape changes in a way that would break
 /// materialization.  Materializers can use this to decide whether to apply
 /// migration logic or reject events.
-pub const TIMELINE_SCHEMA_VERSION: u16 = 1;
+pub const TIMELINE_SCHEMA_VERSION: u16 = 2;
+
+// ============================================================================
+// Reasoning visibility
+// ============================================================================
+
+/// Controls whether reasoning content is public or private.
+///
+/// Private reasoning MUST NOT be persisted, emitted over WebSocket, served
+/// via history/reconnect APIs, or rendered by the frontend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ReasoningVisibility {
+    /// Visible activity narration — safe for users.
+    Public,
+    /// Raw provider chain-of-thought — never leaves trusted boundary.
+    Private,
+}
+
+// ============================================================================
+// Assistant text role
+// ============================================================================
+
+/// Distinguishes between public activity narration and the final answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AssistantTextRole {
+    /// Public process narration — can be folded into a ProcessInterval.
+    Activity,
+    /// The final answer — always visible, cuts any active interval.
+    Final,
+}
 
 // ============================================================================
 // Timeline event type enum
@@ -151,6 +188,9 @@ pub struct TurnStartedPayload {
 pub struct UserMessageCreatedPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_id: Option<String>,
+    /// Client-generated id echoed back for optimistic overlay reconciliation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_message_id: Option<String>,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachments: Option<Vec<String>>,
@@ -168,6 +208,9 @@ pub struct AssistantTextDeltaPayload {
     /// Byte offset from the start of the text stream (for ordering).
     #[serde(default)]
     pub offset: u64,
+    /// Whether this is activity narration or final answer text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_role: Option<AssistantTextRole>,
 }
 
 /// Payload for text snapshot events.
@@ -182,6 +225,9 @@ pub struct AssistantTextSnapshotPayload {
     /// Byte length of the content.
     #[serde(default)]
     pub byte_length: u64,
+    /// Whether this is activity narration or final answer text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_role: Option<AssistantTextRole>,
 }
 
 /// Payload for reasoning delta events.
@@ -193,6 +239,9 @@ pub struct ReasoningDeltaPayload {
     pub delta: String,
     #[serde(default)]
     pub offset: u64,
+    /// Visibility control: private reasoning MUST NOT be persisted or emitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<ReasoningVisibility>,
 }
 
 /// Payload for reasoning snapshot events.
@@ -202,6 +251,9 @@ pub struct ReasoningDeltaPayload {
 pub struct ReasoningSnapshotPayload {
     pub node_id: String,
     pub content: String,
+    /// Visibility control: private reasoning MUST NOT be persisted or emitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<ReasoningVisibility>,
 }
 
 /// Payload for `ToolCallStarted` events.
@@ -318,6 +370,15 @@ pub struct TurnFinishedPayload {
     pub tool_calls: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
+    /// Number of repeated force stops during the turn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repeated_force_stops: Option<u32>,
+    /// Number of repeated warnings during the turn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repeated_warns: Option<u32>,
+    /// Number of consecutive rounds with no progress.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no_progress_count: Option<u32>,
 }
 
 /// Payload for `CompactBoundary` events.
@@ -648,6 +709,9 @@ pub struct AssistantTextNode {
     /// Total byte length (used for display sizing).
     #[serde(default)]
     pub byte_length: u64,
+    /// Whether this is activity narration or final answer text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_role: Option<AssistantTextRole>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_trace: Option<SourceEventTrace>,
 }
@@ -666,6 +730,9 @@ pub struct ReasoningNode {
     /// Whether reasoning is collapsed by default after completion.
     #[serde(default)]
     pub collapsed: bool,
+    /// Visibility control: private reasoning must not be rendered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<ReasoningVisibility>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_trace: Option<SourceEventTrace>,
 }
@@ -985,7 +1052,7 @@ mod tests {
         let val = serde_json::to_value(&event).unwrap();
         assert_eq!(val["event_type"], "turn_started");
         assert_eq!(val["seq"], 1);
-        assert_eq!(val["schema_version"], 1);
+        assert_eq!(val["schema_version"], 2);
     }
 
     // ── Payload structs ────────────────────────────────────────────────
@@ -1008,6 +1075,7 @@ mod tests {
     fn user_message_created_payload_roundtrip() {
         let payload = UserMessageCreatedPayload {
             message_id: Some("msg-1".into()),
+            client_message_id: Some("client-msg-1".into()),
             content: "Hello".into(),
             attachments: Some(vec!["file.txt".into()]),
         };
@@ -1015,6 +1083,7 @@ mod tests {
         let back: UserMessageCreatedPayload = serde_json::from_str(&json).unwrap();
         assert_eq!(back.content, "Hello");
         assert_eq!(back.message_id.unwrap(), "msg-1");
+        assert_eq!(back.client_message_id.unwrap(), "client-msg-1");
     }
 
     #[test]
@@ -1023,6 +1092,7 @@ mod tests {
             node_id: "node-1".into(),
             delta: "hello ".into(),
             offset: 0,
+            text_role: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let back: AssistantTextDeltaPayload = serde_json::from_str(&json).unwrap();
@@ -1136,6 +1206,9 @@ mod tests {
             iterations: Some(12),
             tool_calls: Some(45),
             elapsed_ms: Some(35000),
+            repeated_force_stops: Some(2),
+            repeated_warns: Some(1),
+            no_progress_count: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let back: TurnFinishedPayload = serde_json::from_str(&json).unwrap();
@@ -1206,6 +1279,7 @@ mod tests {
             updated_at_ms: 2000,
             content: "Here is the result.".into(),
             byte_length: 19,
+            text_role: Some(AssistantTextRole::Final),
             source_trace: Some(SourceEventTrace {
                 event_ids: vec!["evt-1".into(), "evt-2".into()],
                 min_seq: Some(3),
@@ -1231,6 +1305,7 @@ mod tests {
             updated_at_ms: 1500,
             content: "Let me think about this...".into(),
             collapsed: true,
+            visibility: Some(ReasoningVisibility::Public),
             source_trace: None,
         };
         let json = serde_json::to_string(&node).unwrap();
@@ -1509,6 +1584,7 @@ mod tests {
             updated_at_ms: event_back.created_at_ms,
             content: payload.content,
             byte_length: payload.byte_length,
+            text_role: None,
             source_trace: Some(SourceEventTrace {
                 event_ids: vec![event_back.id.to_string()],
                 min_seq: Some(event_back.seq),

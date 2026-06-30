@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useTimelineStore } from "../stores/timeline-store";
-import { recoverTimelineAfterReconnect } from "../timeline/reconnect";
-import type { TurnTimelineEvent, TurnDisplayNode } from "../timeline/types";
+import { reduceTimelineEvents } from "../timeline/reducer";
+import type { TurnTimelineEvent } from "../timeline/types";
 
 vi.mock("../api", () => ({
   getTimelineMaxSeq: vi.fn(() => Promise.resolve({ session_id: "s1", max_seq: 3 })),
@@ -32,7 +32,7 @@ function event(seq: number, id = `evt-${seq}`): TurnTimelineEvent {
     turn_id: "t1",
     seq,
     event_type: "assistant_text_delta",
-    schema_version: 1,
+    schema_version: 2,
     payload_json: {
       node_id: "text-1",
       delta: String(seq),
@@ -44,132 +44,95 @@ function event(seq: number, id = `evt-${seq}`): TurnTimelineEvent {
 describe("timeline store", () => {
   beforeEach(() => {
     useTimelineStore.setState({
-      states: {},
+      records: {},
       lastSeenSeq: {},
     });
   });
 
-  it("advances lastSeenSeq when merging incremental events into an existing timeline", () => {
-    const store = useTimelineStore.getState();
+  it("ingestEvents from empty state creates fresh timeline", () => {
+    useTimelineStore.getState().initSession("s2");
+    useTimelineStore.getState().ingestEvents("s2", [event(1), event(2), event(3)]);
 
-    store.loadEvents("s1", [event(1), event(2)]);
+    const rec = useTimelineStore.getState().records.s2;
+    expect(rec).toBeDefined();
+    expect(rec.canonical.events).toHaveLength(3);
+    expect(rec.canonical.maxSeq).toBe(3);
+    expect(useTimelineStore.getState().lastSeenSeq.s2).toBe(3);
+  });
+
+  it("ingestEvent is idempotent (skips known event IDs)", () => {
+    useTimelineStore.getState().initSession("s1");
+    useTimelineStore.getState().ingestEvent("s1", event(1, "evt-1"));
+    useTimelineStore.getState().ingestEvent("s1", event(1, "evt-1")); // duplicate
+
+    const rec = useTimelineStore.getState().records.s1;
+    expect(rec.canonical.events).toHaveLength(1);
+  });
+
+  it("ingestEvent advances lastSeenSeq", () => {
+    useTimelineStore.getState().initSession("s1");
+    useTimelineStore.getState().ingestEvent("s1", event(1));
+    expect(useTimelineStore.getState().lastSeenSeq.s1).toBe(1);
+    useTimelineStore.getState().ingestEvent("s1", event(2));
     expect(useTimelineStore.getState().lastSeenSeq.s1).toBe(2);
-
-    useTimelineStore.getState().loadEvents("s1", [event(3)]);
-    const state = useTimelineStore.getState();
-
-    expect(state.lastSeenSeq.s1).toBe(3);
-    expect(state.states.s1.events.map((e) => e.seq)).toEqual([1, 2, 3]);
   });
 
-  it("advances lastSeenSeq when duplicate incremental events are observed", () => {
-    const store = useTimelineStore.getState();
+  it("ingestEvent handles gap (stores in pending)", () => {
+    useTimelineStore.getState().initSession("s1");
+    // Ingest seq=5 (gap from 0)
+    useTimelineStore.getState().ingestEvent("s1", event(5, "evt-5"));
 
-    store.loadEvents("s1", [event(1)]);
-    useTimelineStore.getState().loadEvents("s1", [event(1), event(2)]);
-
-    expect(useTimelineStore.getState().lastSeenSeq.s1).toBe(2);
+    const rec = useTimelineStore.getState().records.s1;
+    // Should be in pending, not applied
+    expect(rec.lastContiguousSeq).toBe(0);
+    expect(rec.pendingBySeq.has(5)).toBe(true);
+    expect(rec.canonical.events).toHaveLength(0);
   });
 
-  it("records max sequence when materialized display nodes are loaded", () => {
-    const node: TurnDisplayNode = {
-      kind: "system_notice",
-      node_id: "node-sn-1",
-      turn_id: "t1",
-      status: "completed",
-      created_at_ms: 1,
-      updated_at_ms: 1,
-      level: "info",
-      category: "test",
-      message: "loaded",
-    };
+  it("recalculateContiguous chains pending events", () => {
+    useTimelineStore.getState().initSession("s1");
+    // Ingest seq=3 (gap)
+    useTimelineStore.getState().ingestEvent("s1", event(3, "evt-3"));
+    // Fill gap with seq=1,2
+    useTimelineStore.getState().fillGap("s1", [event(1, "evt-1"), event(2, "evt-2")]);
 
-    useTimelineStore.getState().loadNodes("s1", [node], 42);
-
-    expect(useTimelineStore.getState().lastSeenSeq.s1).toBe(42);
-  });
-
-  it("records backend max sequence after reconnect display-node fallback", async () => {
-    const recovered = await recoverTimelineAfterReconnect("s1");
-
-    expect(recovered).toBe(true);
-    expect(useTimelineStore.getState().lastSeenSeq.s1).toBe(3);
-    expect(useTimelineStore.getState().states.s1.nodes).toHaveLength(1);
-  });
-
-  it("loadEvents from empty state creates fresh timeline", () => {
-    useTimelineStore.getState().loadEvents("s2", [event(1), event(2), event(3)]);
-
-    const state = useTimelineStore.getState();
-    expect(state.states.s2).toBeDefined();
-    expect(state.states.s2.events).toHaveLength(3);
-    expect(state.states.s2.maxSeq).toBe(3);
-    expect(state.lastSeenSeq.s2).toBe(3);
-  });
-
-  it("loadEvents with all already-seen events only updates seq", () => {
-    // First load
-    useTimelineStore.getState().loadEvents("s1", [event(1), event(2)]);
-
-    // Second load — all events already exist
-    useTimelineStore.getState().loadEvents("s1", [event(1), event(2)]);
-
-    const state = useTimelineStore.getState();
-    expect(state.states.s1.events).toHaveLength(2); // no duplicates
-    expect(state.lastSeenSeq.s1).toBe(2);
-  });
-
-  it("loadEvents merges new events even with lower seq (IDs determine newness)", () => {
-    useTimelineStore.getState().loadEvents("s1", [event(5)]);
-
-    // Load events with different IDs but lower seq — they're still new
-    useTimelineStore.getState().loadEvents("s1", [event(1), event(2)]);
-
-    const state = useTimelineStore.getState();
-    // All 3 events are present because they have different IDs
-    expect(state.states.s1.events).toHaveLength(3);
-    expect(state.lastSeenSeq.s1).toBe(5); // max seq is 5
+    const rec = useTimelineStore.getState().records.s1;
+    expect(rec.lastContiguousSeq).toBe(3);
+    expect(rec.canonical.events).toHaveLength(3);
   });
 
   it("initSession creates empty state for new session", () => {
     useTimelineStore.getState().initSession("new-session");
 
-    const state = useTimelineStore.getState();
-    expect(state.states["new-session"]).toBeDefined();
-    expect(state.states["new-session"].nodes).toHaveLength(0);
-    expect(state.states["new-session"].events).toHaveLength(0);
-    expect(state.states["new-session"].sessionId).toBe("new-session");
+    const rec = useTimelineStore.getState().records["new-session"];
+    expect(rec).toBeDefined();
+    expect(rec.canonical.nodes).toHaveLength(0);
+    expect(rec.canonical.events).toHaveLength(0);
+    expect(rec.canonical.sessionId).toBe("new-session");
   });
 
-  it("initSession is idempotent (does not overwrite existing)", () => {
-    useTimelineStore.getState().loadEvents("s1", [event(1)]);
-    const before = useTimelineStore.getState().states.s1.events.length;
+  it("initSession is idempotent", () => {
+    useTimelineStore.getState().initSession("s1");
+    useTimelineStore.getState().ingestEvent("s1", event(1));
+    const before = useTimelineStore.getState().records.s1.canonical.events.length;
 
     useTimelineStore.getState().initSession("s1"); // should be no-op
-    const after = useTimelineStore.getState().states.s1.events.length;
+    const after = useTimelineStore.getState().records.s1.canonical.events.length;
 
     expect(after).toBe(before);
   });
 
   it("cleanupSession removes session state", () => {
-    useTimelineStore.getState().loadEvents("s1", [event(1)]);
-    expect(useTimelineStore.getState().states.s1).toBeDefined();
+    useTimelineStore.getState().initSession("s1");
+    useTimelineStore.getState().ingestEvent("s1", event(1));
+    expect(useTimelineStore.getState().records.s1).toBeDefined();
 
     useTimelineStore.getState().cleanupSession("s1");
-    expect(useTimelineStore.getState().states.s1).toBeUndefined();
+    expect(useTimelineStore.getState().records.s1).toBeUndefined();
     expect(useTimelineStore.getState().lastSeenSeq.s1).toBeUndefined();
   });
 
-  it("addEvent reduces a single event into state", () => {
-    useTimelineStore.getState().addEvent("s1", event(1));
-
-    const state = useTimelineStore.getState();
-    expect(state.states.s1.events).toHaveLength(1);
-    expect(state.states.s1.maxSeq).toBe(1);
-    expect(state.lastSeenSeq.s1).toBe(1);
-  });
-
-  it("setLastSeenSeq advances the sequence for a session", () => {
+  it("setLastSeenSeq advances the sequence", () => {
     useTimelineStore.getState().setLastSeenSeq("s1", 10);
     expect(useTimelineStore.getState().lastSeenSeq.s1).toBe(10);
 
@@ -178,30 +141,53 @@ describe("timeline store", () => {
     expect(useTimelineStore.getState().lastSeenSeq.s1).toBe(10);
   });
 
-  it("reconnect recovery syncs when backend has data but client doesn't", async () => {
-    const { getTimelineMaxSeq, getSessionDisplayNodes } = await import("../api");
-    // Client has no state (lastSeen=0), backend has max_seq=5
-    vi.mocked(getTimelineMaxSeq).mockResolvedValueOnce({ session_id: "new", max_seq: 5 });
-    vi.mocked(getSessionDisplayNodes).mockResolvedValueOnce({
-      session_id: "new",
-      nodes: [{ kind: "user_message", node_id: "n1", turn_id: "t1", status: "completed", created_at_ms: 1, updated_at_ms: 1, content: "Hi" }] as unknown as Array<Record<string, unknown>>,
-      count: 1,
+  it("upsertOptimisticUser and removeOptimisticUser manage overlay", () => {
+    useTimelineStore.getState().initSession("s1");
+    useTimelineStore.getState().upsertOptimisticUser("s1", {
+      clientMessageId: "client-1",
+      localTurnId: "opt-turn-1",
+      content: "Hello",
+      createdAtMs: 1000,
+      status: "sending",
     });
 
-    const recovered = await recoverTimelineAfterReconnect("new");
-    expect(recovered).toBe(true);
-    expect(useTimelineStore.getState().states["new"]).toBeDefined();
-    expect(useTimelineStore.getState().states["new"].nodes).toHaveLength(1);
+    let rec = useTimelineStore.getState().records.s1;
+    expect(rec.optimisticUsers["client-1"]).toBeDefined();
+    expect(rec.optimisticUsers["client-1"].content).toBe("Hello");
+
+    useTimelineStore.getState().removeOptimisticUser("s1", "client-1");
+    rec = useTimelineStore.getState().records.s1;
+    expect(rec.optimisticUsers["client-1"]).toBeUndefined();
   });
 
-  it("reconnect recovery returns true when already in sync (no gap)", async () => {
-    // First prime the store with a known lastSeen value
-    useTimelineStore.getState().setLastSeenSeq("synced", 3);
+  it("upsertToolOutputPatch and removeToolOutputPatch manage patches", () => {
+    useTimelineStore.getState().initSession("s1");
+    useTimelineStore.getState().upsertToolOutputPatch("s1", {
+      callId: "tool-1",
+      content: "partial output...",
+      truncated: false,
+      updatedAtMs: 2000,
+    });
 
-    const { getTimelineMaxSeq } = await import("../api");
-    vi.mocked(getTimelineMaxSeq).mockResolvedValueOnce({ session_id: "synced", max_seq: 3 });
+    let rec = useTimelineStore.getState().records.s1;
+    expect(rec.toolOutputPatches["tool-1"]).toBeDefined();
 
-    const recovered = await recoverTimelineAfterReconnect("synced");
-    expect(recovered).toBe(true); // In sync, nothing to do
+    useTimelineStore.getState().removeToolOutputPatch("s1", "tool-1");
+    rec = useTimelineStore.getState().records.s1;
+    expect(rec.toolOutputPatches["tool-1"]).toBeUndefined();
+  });
+
+  it("replaceCanonicalTimeline atomically replaces state", () => {
+    useTimelineStore.getState().initSession("s1");
+    useTimelineStore.getState().ingestEvent("s1", event(1));
+
+    // Replace with new state
+    const newState = reduceTimelineEvents([event(10, "evt-10"), event(11, "evt-11")]);
+    useTimelineStore.getState().replaceCanonicalTimeline("s1", newState);
+
+    const rec = useTimelineStore.getState().records.s1;
+    expect(rec.canonical.events).toHaveLength(2);
+    expect(rec.canonical.maxSeq).toBe(11);
+    expect(rec.lastContiguousSeq).toBe(11);
   });
 });

@@ -10,6 +10,7 @@ import type { TurnGroup } from "../../lib/timeline/selectors";
 import type { UserMessageNode } from "../../lib/timeline/types";
 import type { ChatMessage } from "../../lib/stores/types";
 import { AssistantResponseBlock } from "./AssistantResponseBlock";
+import { PhaseIndicator } from "./ThinkingIndicator";
 import { UserInput } from "./UserInput";
 
 export interface TurnBlockProps {
@@ -46,14 +47,16 @@ export const TurnBlock = memo(function TurnBlock({
       )}
 
       {/* Assistant response — left-aligned cohesive block */}
-      {assistantNodes.length > 0 && (
+      {assistantNodes.length > 0 ? (
         <AssistantResponseBlock
           nodes={assistantNodes}
           isLive={isLive}
           sessionId={sessionId}
           showDiagnostics={showDiagnostics}
         />
-      )}
+      ) : isLive ? (
+        <PhaseIndicator phase={userMessageNode?.status === "pending" ? "connecting" : "thinking"} />
+      ) : null}
     </div>
   );
 });

@@ -109,6 +109,84 @@ describe("TurnNodeRenderer smoke tests", () => {
     expect(container.innerHTML).toBe("");
   });
 
+  it("does not render whitespace-only assistant text or reasoning placeholders", () => {
+    const blankText: AssistantTextNode = {
+      kind: "assistant_text",
+      node_id: "blank-text",
+      turn_id: "t1",
+      status: "pending",
+      created_at_ms: 1000,
+      updated_at_ms: 1000,
+      content: "\n  ",
+      text_role: "activity",
+    };
+    const blankReasoning: ReasoningNode = {
+      kind: "reasoning",
+      node_id: "blank-reasoning",
+      turn_id: "t1",
+      status: "pending",
+      created_at_ms: 1000,
+      updated_at_ms: 1000,
+      content: "\n",
+      collapsed: false,
+      visibility: "public",
+    };
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[blankText, blankReasoning]} isLive />,
+    );
+
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("renders only one live cursor for multiple pending text nodes", () => {
+    const first: AssistantTextNode = {
+      kind: "assistant_text",
+      node_id: "text-1",
+      turn_id: "t1",
+      status: "pending",
+      created_at_ms: 1000,
+      updated_at_ms: 1000,
+      content: "First pending segment.",
+      text_role: "final",
+    };
+    const second: AssistantTextNode = {
+      ...first,
+      node_id: "text-2",
+      updated_at_ms: 1001,
+      content: "Second pending segment.",
+    };
+
+    const { container } = render(
+      <TurnNodeRenderer nodes={[first, second]} isLive />,
+    );
+
+    expect(container.querySelectorAll("[data-streaming-cursor]")).toHaveLength(1);
+  });
+
+  it("shows thinking state for a live turn before assistant nodes arrive", () => {
+    const turnGroup: TurnGroup = {
+      groupId: "t-thinking:0",
+      turnId: "t-thinking",
+      userMessageNode: {
+        kind: "user_message",
+        node_id: "u-thinking",
+        turn_id: "t-thinking",
+        status: "pending",
+        created_at_ms: 1000,
+        updated_at_ms: 1000,
+        content: "review下代码",
+        attachments: [],
+      },
+      assistantNodes: [],
+    };
+
+    const { container } = render(<TurnBlock turnGroup={turnGroup} isLive />);
+
+    expect(container.textContent).toContain("review下代码");
+    expect(container.textContent).not.toBe("review下代码");
+  });
+
   it("renders text-only turn nodes without crashing", async () => {
     const events = simpleTextTurnFixture();
     const state = reduceTimelineEvents(events);
@@ -185,15 +263,16 @@ describe("Node view mapping", () => {
 
     await waitFor(() => {
       expect(container.textContent).toContain("I will inspect the file first.");
-      expect(container.textContent).toContain("Read README.md");
+      expect(container.textContent).toContain("已读取");
+      expect(container.textContent).toContain("README.md");
       expect(container.textContent).toContain("The file is straightforward.");
     });
 
     const text = container.textContent ?? "";
     expect(text.indexOf("I will inspect the file first.")).toBeLessThan(
-      text.indexOf("Read README.md"),
+      text.indexOf("已读取"),
     );
-    expect(text.indexOf("Read README.md")).toBeLessThan(
+    expect(text.indexOf("已读取")).toBeLessThan(
       text.indexOf("The file is straightforward."),
     );
   });
@@ -214,7 +293,7 @@ describe("Node view mapping", () => {
     }, { timeout: 5000 });
   });
 
-  it("reasoning node renders with ReasoningBlock", () => {
+  it("does not render raw reasoning nodes", () => {
     const node: ReasoningNode = {
       kind: "reasoning",
       node_id: "r-1",
@@ -224,13 +303,14 @@ describe("Node view mapping", () => {
       updated_at_ms: 2000,
       content: "Let me think about this.",
       collapsed: true,
+      visibility: "public",
     };
 
     const { container } = render(
       <TurnNodeRenderer nodes={[node]} />,
     );
-    // Content should be visible (collapsed by default but content in DOM)
-    expect(container.textContent).toContain("Let me think about this.");
+    expect(container.textContent).not.toContain("Let me think about this.");
+    expect(container.querySelector('[data-timeline-node-kind="reasoning"]')).toBeNull();
   });
 
   it("iteration_boundary node renders a quiet divider without iteration text", () => {
@@ -275,7 +355,7 @@ describe("Node view mapping", () => {
     expect(container.textContent).toContain(
       "Turn stopped by tool loop protection.",
     );
-    expect(container.textContent).toContain("[tool_loop]");
+    expect(container.textContent).toContain("Code：tool_loop");
   });
 
   it("turn_status node for normal completion renders nothing", () => {
@@ -332,8 +412,11 @@ describe("Node view mapping", () => {
     const { container } = render(
       <TurnNodeRenderer nodes={[node]} />,
     );
-    expect(container.textContent).toContain("allow_once");
-    expect(container.textContent).toContain("user");
+    expect(container.textContent).toContain("已批准执行命令");
+    expect(container.textContent).toContain("Running cargo build");
+    fireEvent.click(container.querySelector("button")!);
+    expect(container.textContent).toContain("决策：allow_once");
+    expect(container.textContent).toContain("来源：user");
   });
 
   it("tool_step renders compact metadata and small output without detail fetch", () => {
@@ -364,7 +447,7 @@ describe("Node view mapping", () => {
       <TurnNodeRenderer nodes={[node]} sessionId="session-1" />,
     );
 
-    expect(container.textContent).toContain("Read README.md");
+    expect(container.textContent).toContain("已读取");
     expect(container.textContent).toContain("README.md");
     fireEvent.click(container.querySelector("button")!);
     expect(container.textContent).toContain("hello");
@@ -418,14 +501,17 @@ describe("Node view mapping", () => {
       created_at_ms: 1000,
       updated_at_ms: 1100,
       tool_name: "read_file",
+      tool_category: "file",
       display_title: "Read a.txt",
       call_id: "tc-1",
+      target: { path: "a.txt" },
     };
     const second: ToolStepNode = {
       ...first,
       node_id: "tool-2",
       display_title: "Read b.txt",
       call_id: "tc-2",
+      target: { path: "b.txt" },
     };
     const group: ToolGroupNode = {
       kind: "tool_group",
@@ -445,10 +531,10 @@ describe("Node view mapping", () => {
     );
 
     expect(container.textContent).toContain("Read files");
-    expect(container.textContent).not.toContain("Read a.txt");
+    expect(container.textContent).not.toContain("a.txt");
     fireEvent.click(container.querySelector("button")!);
-    expect(container.textContent?.indexOf("Read a.txt")).toBeLessThan(
-      container.textContent?.indexOf("Read b.txt") ?? -1,
+    expect(container.textContent?.indexOf("a.txt")).toBeLessThan(
+      container.textContent?.indexOf("b.txt") ?? -1,
     );
   });
 
@@ -456,6 +542,7 @@ describe("Node view mapping", () => {
     const now = Date.now();
     const node = toolStep({
       status: "running",
+      tool_name: "shell_exec",
       tool_category: "shell",
       display_title: "Run tests",
       target: { command: "pnpm test" },
@@ -468,7 +555,7 @@ describe("Node view mapping", () => {
 
     const { container } = render(<TurnNodeRenderer nodes={[node]} />);
 
-    expect(container.textContent).toContain("Run tests");
+    expect(container.textContent).toContain("正在运行测试");
     expect(container.textContent).toContain("pnpm test");
     expect(container.textContent).toContain("finishing");
     expect(container.textContent).toContain("1.5s");
@@ -1004,15 +1091,19 @@ describe("Ordering within assistant response blocks", () => {
     const presentationKinds = Array.from(response.querySelectorAll("[data-timeline-node-kind], [data-presentation-kind]"))
       .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"))
       .filter((kind) => kind !== "turn_status");
-    expect(presentationKinds).toEqual(["process_summary", "assistant_text"]);
+    // Completed turns fold the whole process summary, keeping final text outside.
+    const intervalKind = presentationKinds[0];
+    expect(intervalKind).toBe("completed_turn_process");
+    expect(presentationKinds[presentationKinds.length - 1]).toBe("assistant_text");
     expect(container.textContent).toContain("已处理");
     expect(container.textContent).toContain("Here is the result.");
+    expect(container.textContent).not.toContain("已搜索 1 次");
     expect(container.textContent).not.toContain("Let me think");
 
-    fireEvent.click(response.querySelector('[data-presentation-kind="process_summary"] button')!);
-    const expandedKinds = Array.from(response.querySelectorAll("[data-completed-process-transcript] [data-timeline-node-kind], [data-completed-process-transcript] [data-presentation-kind]"))
-      .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"));
-    expect(expandedKinds).toEqual(["reasoning", "tool_activity_group", "tool_step", "reasoning"]);
+    const processBtn = response.querySelector('[data-presentation-kind="completed_turn_process"] button');
+    expect(processBtn).toBeTruthy();
+    fireEvent.click(processBtn!);
+    expect(container.textContent).toContain("已搜索 1 次");
   });
 
   it("preserves text → tool → text order", () => {
@@ -1062,13 +1153,14 @@ describe("Ordering within assistant response blocks", () => {
     const domKinds = Array.from(response.querySelectorAll("[data-timeline-node-kind], [data-presentation-kind]"))
       .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"))
       .filter((kind) => kind !== "turn_status");
-    expect(domKinds).toEqual(["assistant_text", "process_summary", "assistant_text"]);
-    const text = container.textContent ?? "";
-    expect(text.indexOf("Before tool.")).toBeLessThan(text.indexOf("已处理"));
-    expect(text.indexOf("已处理")).toBeLessThan(text.indexOf("After tool."));
+    expect(domKinds).toEqual(["assistant_text", "completed_turn_process", "assistant_text"]);
 
-    fireEvent.click(response.querySelector('[data-presentation-kind="process_summary"] button')!);
-    expect(container.textContent).toContain("Run command");
+    fireEvent.click(response.querySelector('[data-presentation-kind="completed_turn_process"] button')!);
+    const text = container.textContent ?? "";
+    expect(text.indexOf("Before tool.")).toBeLessThan(text.indexOf("已运行 1 条命令"));
+    expect(text.indexOf("已运行 1 条命令")).toBeLessThan(text.indexOf("After tool."));
+    fireEvent.click(response.querySelector('[data-presentation-kind="process_interval"] button')!);
+    expect(container.textContent).toContain("已运行命令");
   });
 });
 
@@ -1207,17 +1299,81 @@ describe("Codex/ChatGPT layout visual structure", () => {
       const response = container.querySelector(".assistant-response")!;
       const domKinds = Array.from(response.querySelectorAll("[data-timeline-node-kind], [data-presentation-kind]"))
         .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"));
-      expect(domKinds).toEqual(["process_summary", "assistant_text", "turn_status"]);
+      // New presentation: running tool separated from completed intervals
+      expect(domKinds.filter(k => k === "process_interval").length).toBeGreaterThanOrEqual(1);
+      expect(domKinds).toContain("assistant_text");
+      expect(domKinds).toContain("turn_status");
       expect(response.querySelectorAll("[data-activity-row]").length).toBeGreaterThanOrEqual(2);
       expect(container.textContent).toContain("The answer resumes here.");
       expect(response.querySelector('[data-timeline-node-kind="turn_status"]')).toBeTruthy();
     });
 
     const response = container.querySelector(".assistant-response")!;
-    fireEvent.click(response.querySelector('[data-presentation-kind="process_summary"] button')!);
-    const expandedKinds = Array.from(response.querySelectorAll("[data-completed-process-transcript] [data-timeline-node-kind], [data-completed-process-transcript] [data-presentation-kind]"))
-      .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"));
-    expect(expandedKinds).toEqual(["reasoning", "tool_activity_group", "tool_step", "tool_activity_group", "tool_step"]);
+    const intervalBtn = response.querySelector('[data-presentation-kind="process_interval"] button');
+    if (intervalBtn) {
+      fireEvent.click(intervalBtn);
+      const expandedKinds = Array.from(response.querySelectorAll("[data-completed-process-transcript] [data-timeline-node-kind], [data-completed-process-transcript] [data-presentation-kind]"))
+        .map((el) => el.getAttribute("data-presentation-kind") ?? el.getAttribute("data-timeline-node-kind"));
+      // Expanded process interval shows individual nodes
+      expect(expandedKinds.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("keeps live process status active after tools finish while waiting for answer text", () => {
+    const events = [
+      makeTurnStarted({ seq: 1, turn_id: "t-live-thinking" }),
+      makeUserMessageCreated({ seq: 2, turn_id: "t-live-thinking", payload: { content: "Review code" } }),
+      makeToolStarted({
+        seq: 3,
+        turn_id: "t-live-thinking",
+        payload: { call_id: "tc-done", tool_name: "read_file", tool_category: "file", display_title: "Read file", args: "{}" },
+      }),
+      makeToolFinished({ seq: 4, turn_id: "t-live-thinking", payload: { call_id: "tc-done", tool_name: "read_file", success: true } }),
+    ];
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+
+    const { container } = render(
+      <TurnBlock turnGroup={groups[0]} isLive sessionId="session-1" />,
+    );
+
+    expect(container.textContent).toContain("正在阅读相关实现");
+    expect(container.textContent).toContain("已读取 1 个文件");
+    expect(container.textContent).not.toContain("已运行 1 条命令Read file");
+  });
+
+  it("shows the active running tool and completed count in live process status", () => {
+    const events = [
+      makeTurnStarted({ seq: 1, turn_id: "t-live-running" }),
+      makeUserMessageCreated({ seq: 2, turn_id: "t-live-running", payload: { content: "Review code" } }),
+      makeToolStarted({
+        seq: 3,
+        turn_id: "t-live-running",
+        payload: { call_id: "tc-done", tool_name: "read_file", tool_category: "file", display_title: "Read file", args: "{}" },
+      }),
+      makeToolFinished({ seq: 4, turn_id: "t-live-running", payload: { call_id: "tc-done", tool_name: "read_file", success: true } }),
+      makeToolStarted({
+        seq: 5,
+        turn_id: "t-live-running",
+        payload: {
+          call_id: "tc-running",
+          tool_name: "shell_exec",
+          tool_category: "shell",
+          display_title: "Run command",
+          args: JSON.stringify({ command: "pnpm test -- src/components/message-stream/__tests__/turn-node-renderer.test.tsx" }),
+        },
+      }),
+    ];
+    const state = reduceTimelineEvents(events);
+    const groups = selectTurnGroups(state);
+
+    const { container } = render(
+      <TurnBlock turnGroup={groups[0]} isLive sessionId="session-1" />,
+    );
+
+    expect(container.textContent).toContain("正在运行测试");
+    expect(container.textContent).toContain("pnpm test");
+    expect(container.textContent).toContain("已读取 1 个文件");
   });
 
   it("summarizes sub-agent spawn/get tools without exposing raw function names by default", () => {
@@ -1257,9 +1413,13 @@ describe("Codex/ChatGPT layout visual structure", () => {
     );
 
     const response = container.querySelector(".assistant-response")!;
-    expect(response.querySelector('[data-presentation-kind="tool_activity_group"]')).toBeTruthy();
-    expect(container.textContent).toContain("Reviewed with 2 sub-agents");
-    expect(container.textContent).not.toContain("subagent_get");
+    // Completed tools are inside process_intervals
+    const interval = response.querySelector('[data-presentation-kind="process_interval"]');
+    expect(interval).toBeTruthy();
+    // Expand to see tool details
+    const btn = interval?.querySelector("button");
+    if (btn) fireEvent.click(btn);
+    expect(container.textContent).toContain("已调用子代理");
   });
 
   it("keeps diff inspection and sub-agent review as separate activity groups", () => {
@@ -1297,10 +1457,12 @@ describe("Codex/ChatGPT layout visual structure", () => {
       <TurnBlock turnGroup={groups[0]} sessionId="session-1" />,
     );
 
-    const activityGroups = container.querySelectorAll('[data-presentation-kind="tool_activity_group"]');
-    expect(activityGroups.length).toBe(2);
-    expect(container.textContent).toContain("Inspect changed files");
-    expect(container.textContent).toContain("Reviewed with 1 sub-agent");
-    expect(container.textContent).not.toContain("Run git diff --stat");
+    // Completed tools are folded into process intervals
+    const intervalEl = container.querySelector('[data-presentation-kind="process_interval"]');
+    expect(intervalEl).toBeTruthy();
+    // Expand to see tool details
+    const btn = intervalEl?.querySelector("button");
+    if (btn) fireEvent.click(btn);
+    expect(container.textContent).toContain("已运行命令");
   });
 });

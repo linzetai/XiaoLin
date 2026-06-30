@@ -490,6 +490,12 @@ pub async fn spawn_chat(
         // Parse requested execution mode from the chat request early,
         // but defer applying it until after setup resolves the session id.
         let requested_execution_mode: Option<ExecutionMode> = params.execution_mode;
+        let client_message_id = params
+            .extra
+            .get("client_message_id")
+            .or_else(|| params.extra.get("clientMessageId"))
+            .and_then(|value| value.as_str())
+            .map(ToString::to_string);
 
         if goal_mode {
             if let Some(session_id) = params.session_id.as_deref() {
@@ -877,41 +883,7 @@ pub async fn spawn_chat(
         // boundaries (before any visible non-text event and terminal turn).
         let _timeline_now_ms = chrono::Utc::now().timestamp_millis();
         let mut text_node_id = format!("text-{}", uuid::Uuid::new_v4());
-        let mut reasoning_node_id = format!("reasoning-{}", uuid::Uuid::new_v4());
-        let mut timeline_text_buffer = String::new();
-        let mut timeline_reasoning_buffer = String::new();
         let mut text_offset: u64 = 0;
-        let mut reasoning_offset: u64 = 0;
-
-        // Flush text buffer — emits a single AssistantTextDelta with the
-        // accumulated content since the last flush point.
-        let flush_text_timeline = |offset: &mut u64, node_id: &str, content: &str| {
-            if content.is_empty() {
-                return Option::<timeline_emit::EmissionCandidate>::None;
-            }
-            let delta = content.to_string();
-            let current_offset = *offset;
-            *offset += delta.len() as u64;
-            Some(timeline_emit::build_text_delta(
-                node_id,
-                &delta,
-                current_offset,
-            ))
-        };
-
-        let flush_reasoning_timeline = |offset: &mut u64, node_id: &str, content: &str| {
-            if content.is_empty() {
-                return Option::<timeline_emit::EmissionCandidate>::None;
-            }
-            let delta = content.to_string();
-            let current_offset = *offset;
-            *offset += delta.len() as u64;
-            Some(timeline_emit::build_reasoning_delta(
-                node_id,
-                &delta,
-                current_offset,
-            ))
-        };
 
         let mode_at_start = state
             .rt
@@ -1043,16 +1015,8 @@ pub async fn spawn_chat(
                 .unwrap_or_else(|| "unknown".to_string());
             let timeline_now = chrono::Utc::now().timestamp_millis();
 
-            // Classify the current event for text/reasoning interleaving.
-            // ContentDelta → flush reasoning first (reasoning appears before text).
-            // Non-empty ReasoningDelta → flush text first (text appears before reasoning).
-            // Tool/iteration/turn boundaries → flush both.
-            let is_content_delta = matches!(&event, AgentEvent::ContentDelta { .. });
-            let is_nonempty_reasoning = matches!(
-                &event,
-                AgentEvent::ReasoningDelta { content, .. } if !content.is_empty()
-            );
-
+            // Tool/iteration/turn boundaries cut the assistant text node. Raw
+            // provider reasoning is intentionally excluded from canonical timeline.
             let should_flush_text = matches!(
                 &event,
                 AgentEvent::ToolExecuting { .. }
@@ -1063,59 +1027,12 @@ pub async fn spawn_chat(
                     | AgentEvent::TurnEnd { .. }
                     | AgentEvent::TurnAborted { .. }
                     | AgentEvent::Error { .. }
-            ) || is_nonempty_reasoning;
-
-            let should_flush_reasoning = matches!(
-                &event,
-                AgentEvent::ToolExecuting { .. }
-                    | AgentEvent::ToolResult { .. }
-                    | AgentEvent::ApprovalRequired { .. }
-                    | AgentEvent::IterationBoundary { .. }
-                    | AgentEvent::CompactBoundary { .. }
-                    | AgentEvent::TurnEnd { .. }
-                    | AgentEvent::TurnAborted { .. }
-                    | AgentEvent::Error { .. }
-            ) || is_content_delta;
+            );
 
             if should_flush_text {
-                // Flush accumulated assistant text as a delta before the boundary event
-                let text_delta =
-                    flush_text_timeline(&mut text_offset, &text_node_id, &timeline_text_buffer);
-                if let Some(candidate) = text_delta {
-                    timeline_text_buffer.clear();
-                    send_timeline_event(
-                        &state.store.timeline_store,
-                        &bg_tx,
-                        &session_id,
-                        &timeline_turn_id,
-                        candidate,
-                        timeline_now,
-                    )
-                    .await;
+                if text_offset > 0 {
                     text_node_id = format!("text-{}", uuid::Uuid::new_v4());
                     text_offset = 0;
-                }
-            }
-
-            if should_flush_reasoning {
-                let reasoning_delta = flush_reasoning_timeline(
-                    &mut reasoning_offset,
-                    &reasoning_node_id,
-                    &timeline_reasoning_buffer,
-                );
-                if let Some(candidate) = reasoning_delta {
-                    timeline_reasoning_buffer.clear();
-                    send_timeline_event(
-                        &state.store.timeline_store,
-                        &bg_tx,
-                        &session_id,
-                        &timeline_turn_id,
-                        candidate,
-                        timeline_now,
-                    )
-                    .await;
-                    reasoning_node_id = format!("reasoning-{}", uuid::Uuid::new_v4());
-                    reasoning_offset = 0;
                 }
             }
 
@@ -1131,11 +1048,8 @@ pub async fn spawn_chat(
                     .and_then(|c| c.as_str())
                 {
                     if !text.is_empty() {
-                        let candidate = timeline_emit::build_text_delta(
-                            &text_node_id,
-                            text,
-                            text_offset,
-                        );
+                        let candidate =
+                            timeline_emit::build_text_delta(&text_node_id, text, text_offset);
                         text_offset += text.len() as u64;
                         send_timeline_event(
                             &state.store.timeline_store,
@@ -1150,25 +1064,36 @@ pub async fn spawn_chat(
                 }
             }
 
-            // Emit ReasoningDelta as an immediate reasoning_delta timeline event.
-            if let AgentEvent::ReasoningDelta { content, .. } = &event {
-                if !content.is_empty() {
-                    let candidate = timeline_emit::build_reasoning_delta(
-                        &reasoning_node_id,
-                        content,
-                        reasoning_offset,
-                    );
-                    reasoning_offset += content.len() as u64;
-                    send_timeline_event(
-                        &state.store.timeline_store,
-                        &bg_tx,
-                        &session_id,
-                        &timeline_turn_id,
-                        candidate,
-                        timeline_now,
-                    )
+            if let AgentEvent::ToolProgress {
+                call_id,
+                partial_output: Some(partial_output),
+                ..
+            } = &event
+            {
+                let patch_content = if partial_output.len() > 8192 {
+                    let start = partial_output
+                        .char_indices()
+                        .map(|(idx, _)| idx)
+                        .find(|idx| partial_output.len().saturating_sub(*idx) <= 8192)
+                        .unwrap_or(0);
+                    partial_output[start..].to_string()
+                } else {
+                    partial_output.clone()
+                };
+                let _ = bg_tx
+                    .send(WsResponse {
+                        id: None,
+                        msg_type: "tool_output_patch".into(),
+                        data: Some(json!({
+                            "session_id": session_id,
+                            "call_id": call_id,
+                            "partial_output": patch_content,
+                            "truncated": partial_output.len() > 8192,
+                            "updated_at_ms": timeline_now,
+                        })),
+                        error: None,
+                    })
                     .await;
-                }
             }
 
             // Map the AgentEvent to timeline events
@@ -1187,7 +1112,11 @@ pub async fn spawn_chat(
             }
             if matches!(&event, AgentEvent::TurnStart { .. }) && !user_timeline_emitted {
                 for content in &user_timeline_contents {
-                    let candidate = timeline_emit::emit_user_message_timeline(content, None);
+                    let candidate = timeline_emit::emit_user_message_timeline(
+                        content,
+                        None,
+                        client_message_id.as_deref(),
+                    );
                     send_timeline_event(
                         &state.store.timeline_store,
                         &bg_tx,

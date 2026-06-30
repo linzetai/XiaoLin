@@ -16,7 +16,28 @@ export type TimelineEventId = string;
 // ============================================================================
 
 /** Current schema version for timeline events. */
-export const TIMELINE_SCHEMA_VERSION = 1;
+export const TIMELINE_SCHEMA_VERSION = 2;
+
+// ============================================================================
+// Reasoning visibility
+// ============================================================================
+
+/**
+ * Controls whether reasoning content is public or private.
+ *
+ * Private reasoning MUST NOT be persisted, emitted over WebSocket, served
+ * via history/reconnect APIs, or rendered by the frontend.
+ */
+export type ReasoningVisibility = "public" | "private";
+
+// ============================================================================
+// Assistant text role
+// ============================================================================
+
+/**
+ * Distinguishes between public activity narration and the final answer.
+ */
+export type AssistantTextRole = "activity" | "final";
 
 // ============================================================================
 // Timeline event type enum
@@ -57,6 +78,8 @@ export interface TurnStartedPayload {
 
 export interface UserMessageCreatedPayload {
   message_id?: string;
+  /** Client-generated id echoed back for optimistic overlay reconciliation. */
+  client_message_id?: string;
   content: string;
   attachments?: string[];
 }
@@ -68,6 +91,8 @@ export interface AssistantTextDeltaPayload {
   delta: string;
   /** Byte offset from the start of the text stream. */
   offset?: number;
+  /** Whether this is activity narration or final answer text. */
+  text_role?: AssistantTextRole;
 }
 
 export interface AssistantTextSnapshotPayload {
@@ -77,17 +102,23 @@ export interface AssistantTextSnapshotPayload {
   content: string;
   /** Byte length of the content. */
   byte_length?: number;
+  /** Whether this is activity narration or final answer text. */
+  text_role?: AssistantTextRole;
 }
 
 export interface ReasoningDeltaPayload {
   node_id: string;
   delta: string;
   offset?: number;
+  /** Visibility control: private reasoning MUST NOT be persisted or emitted. */
+  visibility?: ReasoningVisibility;
 }
 
 export interface ReasoningSnapshotPayload {
   node_id: string;
   content: string;
+  /** Visibility control: private reasoning MUST NOT be persisted or emitted. */
+  visibility?: ReasoningVisibility;
 }
 
 export interface ToolCallStartedPayload {
@@ -146,6 +177,12 @@ export interface TurnFinishedPayload {
   iterations?: number;
   tool_calls?: number;
   elapsed_ms?: number;
+  /** Number of repeated force stops during the turn. */
+  repeated_force_stops?: number;
+  /** Number of repeated warnings during the turn. */
+  repeated_warns?: number;
+  /** Number of consecutive rounds with no progress. */
+  no_progress_count?: number;
 }
 
 export interface CompactBoundaryPayload {
@@ -308,6 +345,8 @@ export interface AssistantTextNode {
   updated_at_ms: number;
   content: string;
   byte_length?: number;
+  /** Whether this is activity narration or final answer text. */
+  text_role?: AssistantTextRole;
   source_trace?: SourceEventTrace;
 }
 
@@ -320,6 +359,8 @@ export interface ReasoningNode {
   updated_at_ms: number;
   content: string;
   collapsed?: boolean;
+  /** Visibility control: private reasoning must not be rendered. */
+  visibility?: ReasoningVisibility;
   source_trace?: SourceEventTrace;
 }
 
@@ -434,6 +475,14 @@ export interface TerminalDiagnosisMetadata {
 // Timeline state (accumulator for the reducer)
 // ============================================================================
 
+/** Identity info tracked in the nodeIdIndex for conflict detection. */
+export interface NodeIdentityInfo {
+  kind: TurnDisplayNodeKind;
+  turnId: string;
+  visibility?: ReasoningVisibility;
+  textRole?: AssistantTextRole;
+}
+
 export interface TimelineState {
   /** All events in order by seq. */
   events: TurnTimelineEvent[];
@@ -447,6 +496,12 @@ export interface TimelineState {
   turnIndex: Record<string, string[]>;
   /** Per-node event trace accumulator. */
   eventTraces: Record<string, string[]>;
+  /**
+   * Node identity index: node_id → identity info.
+   * Survives history reload/replay. Used to detect protocol violations
+   * when an event tries to change a node's kind, turn, visibility, or role.
+   */
+  nodeIdIndex: Record<string, NodeIdentityInfo>;
 }
 
 /** Empty initial state for a session. */
@@ -458,5 +513,81 @@ export function emptyTimelineState(sessionId: string): TimelineState {
     sessionId,
     turnIndex: {},
     eventTraces: {},
+    nodeIdIndex: {},
   };
+}
+
+// ============================================================================
+// Source tracking
+// ============================================================================
+
+/**
+ * Tracks the provenance of timeline data for a session.
+ *
+ * - "none": No data loaded yet.
+ * - "probing": Initial probe in flight (snapshot + buffered WS events).
+ * - "authoritative_pending_snapshot": WS events received but snapshot not yet complete.
+ * - "authoritative": Canonical timeline events from the server.
+ * - "legacy": Synthesized from old message format (degraded experience).
+ */
+export type TimelineSource =
+  | "none"
+  | "probing"
+  | "authoritative_pending_snapshot"
+  | "authoritative"
+  | "legacy";
+
+// ============================================================================
+// Ephemeral overlay types
+// ============================================================================
+
+/** Optimistic user message shown before the authoritative event arrives. */
+export interface ProvisionalUserMessage {
+  clientMessageId: string;
+  localTurnId: string;
+  content: string;
+  attachments?: string[];
+  createdAtMs: number;
+  status: "sending" | "failed";
+}
+
+/** Live partial output patch for a running tool — not durable. */
+export interface ToolOutputPatch {
+  callId: string;
+  content: string;
+  truncated: boolean;
+  updatedAtMs: number;
+}
+
+// ============================================================================
+// Session timeline record (store envelope)
+// ============================================================================
+
+/**
+ * Per-session envelope that wraps canonical state, source tracking,
+ * gap management metadata, and ephemeral overlays.
+ */
+export interface SessionTimelineRecord {
+  /** Provenance of the current timeline data. */
+  source: TimelineSource;
+  /** When the probe started (ms). */
+  probeStartedAtMs: number;
+  /** When the probe completed (ms). */
+  probeCompletedAtMs: number;
+  /** The canonical timeline state (events + nodes + indices). */
+  canonical: TimelineState;
+  /** All known events by id (runtime-only, not serialized). */
+  knownById: Map<string, TurnTimelineEvent>;
+  /** Events in the contiguous applied prefix. */
+  appliedEvents: TurnTimelineEvent[];
+  /** Events received out-of-order, waiting for gap fill (runtime-only). */
+  pendingBySeq: Map<number, TurnTimelineEvent>;
+  /** The last contiguous sequence number applied. */
+  lastContiguousSeq: number;
+  /** Whether a gap fill request is in flight. */
+  gapFillInFlight: boolean;
+  /** Optimistic user messages awaiting reconciliation. */
+  optimisticUsers: Record<string, ProvisionalUserMessage>;
+  /** Live tool output patches for running tools. */
+  toolOutputPatches: Record<string, ToolOutputPatch>;
 }

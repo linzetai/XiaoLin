@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { TimelineTranscript } from "../TimelineTranscript";
 import { useTimelineStore } from "../../../lib/stores/timeline-store";
-import type { TurnDisplayNode } from "../../../lib/timeline";
+import { emptyTimelineState } from "../../../lib/timeline";
+import type { TurnDisplayNode, TimelineState } from "../../../lib/timeline";
 
 const measureMock = vi.fn();
 
@@ -45,18 +46,28 @@ function textNode(content: string): TurnDisplayNode {
   };
 }
 
+function loadNodesForTest(sessionId: string, nodes: TurnDisplayNode[]) {
+  const store = useTimelineStore.getState();
+  store.initSession(sessionId);
+  const state: TimelineState = {
+    ...emptyTimelineState(sessionId),
+    nodes,
+  };
+  store.replaceCanonicalTimeline(sessionId, state);
+}
+
 describe("TimelineTranscript regression coverage", () => {
   beforeEach(() => {
     measureMock.mockClear();
-    useTimelineStore.setState({ states: {}, lastSeenSeq: {} });
+    useTimelineStore.setState({ records: {}, lastSeenSeq: {} });
   });
 
   afterEach(() => {
-    useTimelineStore.setState({ states: {}, lastSeenSeq: {} });
+    useTimelineStore.setState({ records: {}, lastSeenSeq: {} });
   });
 
   it("renders timeline content with a static fallback when virtual items are temporarily empty", async () => {
-    useTimelineStore.getState().loadNodes("session-fallback", [
+    loadNodesForTest("session-fallback", [
       userNode("review下代码"),
       textNode("可以，我来审查。"),
     ]);
@@ -75,7 +86,7 @@ describe("TimelineTranscript regression coverage", () => {
   it("remeasures when switching to a session that already has timeline nodes", async () => {
     const { rerender } = render(<TimelineTranscript sessionId="empty-session" />);
 
-    useTimelineStore.getState().loadNodes("session-with-nodes", [
+    loadNodesForTest("session-with-nodes", [
       userNode("切回这个会话"),
       textNode("不会白屏。"),
     ]);
@@ -87,5 +98,27 @@ describe("TimelineTranscript regression coverage", () => {
     });
     expect(document.body.textContent).toContain("切回这个会话");
     expect(document.body.textContent).toContain("不会白屏。");
+  });
+
+  it("renders a live connecting state while waiting for the first assistant event", async () => {
+    const store = useTimelineStore.getState();
+    store.initSession("session-pending");
+    store.upsertOptimisticUser("session-pending", {
+      clientMessageId: "client-1",
+      localTurnId: "optimistic-turn-client-1",
+      content: "review下代码",
+      attachments: [],
+      createdAtMs: 1000,
+      status: "sending",
+    });
+
+    const { container } = render(
+      <TimelineTranscript sessionId="session-pending" isLive />,
+    );
+
+    await waitFor(() => {
+      expect(container.textContent).toContain("review下代码");
+      expect(container.textContent).toContain("连接中");
+    });
   });
 });

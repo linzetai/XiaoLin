@@ -80,7 +80,7 @@ export type { TurnGroup } from "./selectors";
 export {
   derivePresentationMode,
   isAbnormalTurnStatus,
-  isFoldedProcessNode,
+  isFoldableProcessNode,
   selectAssistantTurnPresentation,
 } from "./presentation";
 export type {
@@ -124,3 +124,29 @@ export {
   recoverTimelineAfterReconnect,
   initTimelineForSession,
 } from "./reconnect";
+
+export { migrateLegacySessionToTimeline } from "./legacy-migration";
+export type { LegacyMessage, LegacyToolCall } from "./legacy-migration";
+
+export { createLegacyLiveAdapter } from "./legacy-live-adapter";
+export type { ChatStreamEvent, LegacyLiveAdapter } from "./legacy-live-adapter";
+
+export {
+  buildPresentationItems,
+  isAttentionItem,
+  normalizeApprovalDecision,
+} from "./presentation";
+export type {
+  ProcessInterval,
+  ApprovalDecision,
+} from "./presentation";
+
+export type {
+  NodeIdentityInfo,
+  ReasoningVisibility,
+  AssistantTextRole,
+  TimelineSource,
+  ProvisionalUserMessage,
+  ToolOutputPatch,
+  SessionTimelineRecord,
+} from "./types";

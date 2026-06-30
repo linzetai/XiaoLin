@@ -12,9 +12,15 @@ interface ReasoningBlockProps {
   content: string;
   isStreaming?: boolean;
   autoCollapse?: boolean;
+  /** Visibility control — non-public reasoning must not be rendered. */
+  visibility?: string;
 }
 
-export function ReasoningBlock({ content, isStreaming, autoCollapse }: ReasoningBlockProps) {
+export function ReasoningBlock({ content, isStreaming, autoCollapse, visibility }: ReasoningBlockProps) {
+  // Safety: never render non-public or undefined-visibility reasoning
+  if (visibility !== "public") {
+    return null;
+  }
   const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
